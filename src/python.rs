@@ -7,7 +7,7 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-use crate::circuit::Node;
+use crate::circuit::{self, Node, Series};
 use crate::elements::Element;
 use crate::fit::{self, FitOptions, Weighting};
 
@@ -20,7 +20,11 @@ const PARALLEL_THRESHOLD: usize = 1_000;
 #[pyclass]
 #[derive(Clone)]
 pub struct Circuit {
-    pub node: Node,
+    pub node: Series,
+}
+
+fn leaf(element: Element) -> Series {
+    vec![Node::Element(element, None)]
 }
 
 #[allow(non_snake_case)] // element codes intentionally mirror impedance.py's naming (R, C, CPE, ...)
@@ -28,91 +32,141 @@ pub struct Circuit {
 impl Circuit {
     #[staticmethod]
     fn R(r: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::R { r }) }
+        Circuit { node: leaf(Element::R { r }) }
     }
 
     #[staticmethod]
     fn C(c: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::C { c }) }
+        Circuit { node: leaf(Element::C { c }) }
     }
 
     #[staticmethod]
     fn L(l: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::L { l }) }
+        Circuit { node: leaf(Element::L { l }) }
     }
 
     #[staticmethod]
     fn La(l: f64, alpha: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::La { l, alpha }) }
+        Circuit { node: leaf(Element::La { l, alpha }) }
     }
 
     #[staticmethod]
     fn CPE(q: f64, alpha: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::Cpe { q, alpha }) }
+        Circuit { node: leaf(Element::Cpe { q, alpha }) }
     }
 
     #[staticmethod]
     fn W(aw: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::W { aw }) }
+        Circuit { node: leaf(Element::W { aw }) }
     }
 
     #[staticmethod]
     fn Wo(z0: f64, tau: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::Wo { z0, tau }) }
+        Circuit { node: leaf(Element::Wo { z0, tau }) }
     }
 
     #[staticmethod]
     fn Ws(z0: f64, tau: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::Ws { z0, tau }) }
+        Circuit { node: leaf(Element::Ws { z0, tau }) }
     }
 
     #[staticmethod]
     fn G(rg: f64, tg: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::G { rg, tg }) }
+        Circuit { node: leaf(Element::G { rg, tg }) }
     }
 
     #[staticmethod]
     fn Gs(rg: f64, tg: f64, phi: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::Gs { rg, tg, phi }) }
+        Circuit { node: leaf(Element::Gs { rg, tg, phi }) }
     }
 
     #[staticmethod]
     fn K(r: f64, tau_k: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::K { r, tau_k }) }
+        Circuit { node: leaf(Element::K { r, tau_k }) }
     }
 
     #[staticmethod]
     fn Zarc(r: f64, tau_k: f64, gamma: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::Zarc { r, tau_k, gamma }) }
+        Circuit { node: leaf(Element::Zarc { r, tau_k, gamma }) }
     }
 
     #[staticmethod]
     fn TLMQ(r_ion: f64, qs: f64, gamma: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::Tlmq { r_ion, qs, gamma }) }
+        Circuit { node: leaf(Element::Tlmq { r_ion, qs, gamma }) }
     }
 
     #[staticmethod]
     fn T(a_coeff: f64, b_coeff: f64, a_param: f64, b_param: f64) -> Circuit {
-        Circuit { node: Node::Leaf(Element::T { a_coeff, b_coeff, a_param, b_param }) }
+        Circuit { node: leaf(Element::T { a_coeff, b_coeff, a_param, b_param }) }
     }
 
     #[staticmethod]
     fn series(elements: Vec<Circuit>) -> Circuit {
-        Circuit { node: Node::Series(elements.into_iter().map(|c| c.node).collect()) }
+        Circuit { node: elements.into_iter().flat_map(|c| c.node).collect() }
     }
 
     #[staticmethod]
     fn parallel(elements: Vec<Circuit>) -> Circuit {
-        Circuit { node: Node::Parallel(elements.into_iter().map(|c| c.node).collect()) }
+        Circuit { node: vec![Node::Parallel(elements.into_iter().map(|c| c.node).collect())] }
+    }
+
+    /// Parse a circuit topology string, e.g. `"R0-p(R1,Cpe1)"` or
+    /// `"R0-p(R1-C1,R2-Cpe2)"`. The string carries no parameter values --
+    /// every element gets a placeholder default; set real values afterward
+    /// with `with_values()` or `with_named_values()`.
+    #[staticmethod]
+    fn from_string(s: &str) -> PyResult<Circuit> {
+        let node = circuit::parse(s).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok(Circuit { node })
+    }
+
+    /// Parameter names, in the same order `with_values()` consumes and
+    /// `with_named_values()` expects as keys.
+    fn param_names(&self) -> Vec<String> {
+        circuit::param_names(&self.node)
+    }
+
+    /// Rebuild this circuit with a new flat parameter vector, assigned
+    /// positionally in `param_names()` order.
+    fn with_values(&self, values: Vec<f64>) -> PyResult<Circuit> {
+        let expected = circuit::param_count(&self.node);
+        if values.len() != expected {
+            return Err(PyValueError::new_err(format!(
+                "expected {expected} values, got {}",
+                values.len()
+            )));
+        }
+        Ok(Circuit { node: circuit::with_param_values(&self.node, &values) })
+    }
+
+    /// Rebuild this circuit with parameter values looked up by name (see
+    /// `param_names()`). Every name must be present and no unknown names
+    /// may be supplied.
+    fn with_named_values(&self, values: HashMap<String, f64>) -> PyResult<Circuit> {
+        let names = circuit::param_names(&self.node);
+
+        let unknown: Vec<&String> = values.keys().filter(|k| !names.contains(k)).collect();
+        if !unknown.is_empty() {
+            return Err(PyValueError::new_err(format!("unknown parameter name(s): {unknown:?}")));
+        }
+
+        let mut positional = Vec::with_capacity(names.len());
+        for name in &names {
+            match values.get(name) {
+                Some(&v) => positional.push(v),
+                None => return Err(PyValueError::new_err(format!("missing value for parameter {name:?}"))),
+            }
+        }
+        Ok(Circuit { node: circuit::with_param_values(&self.node, &positional) })
     }
 
     fn impedance<'py>(&self, py: Python<'py>, frequencies: Vec<f64>) -> Bound<'py, PyArray1<Complex64>> {
         let node = &self.node;
         let result: Vec<Complex64> = py.allow_threads(|| {
             if frequencies.len() >= PARALLEL_THRESHOLD {
-                frequencies.par_iter().map(|f| node.impedance(TAU * f)).collect()
+                frequencies.par_iter().map(|f| circuit::impedance(node, TAU * f)).collect()
             } else {
-                frequencies.iter().map(|f| node.impedance(TAU * f)).collect()
+                frequencies.iter().map(|f| circuit::impedance(node, TAU * f)).collect()
             }
         });
         result.into_pyarray(py)

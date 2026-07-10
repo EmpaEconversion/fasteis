@@ -5,7 +5,7 @@ use nalgebra::{DMatrix, DVector, Dyn};
 use num_complex::Complex64;
 use rayon::prelude::*;
 
-use crate::circuit::Node;
+use crate::circuit::{self, Node, Series};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Weighting {
@@ -29,7 +29,7 @@ impl Default for FitOptions {
 
 #[derive(Debug)]
 pub struct FitOutcome {
-    pub node: Node,
+    pub node: Series,
     pub param_names: Vec<String>,
     pub params: Vec<f64>,
     pub success: bool,
@@ -67,11 +67,11 @@ fn compute_weights(z_measured: &[Complex64], weighting: Weighting) -> Vec<f64> {
 /// Interleaved `[re0, im0, re1, im1, ...]` weighted residual vector, length `2N`.
 /// Optimizer-agnostic: operates on plain `Vec<f64>`, reused unchanged by any future
 /// non-LM backend (see the `argmin` extensibility note in the fit() design).
-fn residuals(topology: &Node, p: &[f64], omegas: &[f64], z_measured: &[Complex64], weights: &[f64]) -> Vec<f64> {
-    let node = topology.with_param_values(p);
+fn residuals(topology: &[Node], p: &[f64], omegas: &[f64], z_measured: &[Complex64], weights: &[f64]) -> Vec<f64> {
+    let node = circuit::with_param_values(topology, p);
     let mut r = vec![0.0; 2 * omegas.len()];
     for (i, &omega) in omegas.iter().enumerate() {
-        let z = node.impedance(omega);
+        let z = circuit::impedance(&node, omega);
         let w = weights[i];
         r[2 * i] = (z.re - z_measured[i].re) / w;
         r[2 * i + 1] = (z.im - z_measured[i].im) / w;
@@ -84,7 +84,7 @@ fn residuals(topology: &Node, p: &[f64], omegas: &[f64], z_measured: &[Complex64
 /// Perturbations are not clamped to physical bounds: impedance() is smooth well outside
 /// those ranges, so clamping here would bias the derivative estimate near a boundary.
 fn jacobian_columns(
-    topology: &Node,
+    topology: &[Node],
     p: &[f64],
     omegas: &[f64],
     z_measured: &[Complex64],
@@ -111,7 +111,7 @@ fn jacobian_columns(
 /// this is what keeps fits from wandering into unphysical territory (negative
 /// resistance, etc.) without needing a log/logit reparametrization.
 struct LmProblem<'a> {
-    topology: &'a Node,
+    topology: &'a [Node],
     omegas: Vec<f64>,
     z_measured: &'a [Complex64],
     weights: Vec<f64>,
@@ -157,7 +157,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
 /// Always returns the best parameters found, even when `success` is false
 /// (max iterations exhausted, etc.) -- convergence quality never withholds a result.
 pub fn levenberg_marquardt_fit(
-    topology: &Node,
+    topology: &[Node],
     frequencies: &[f64],
     z_measured: &[Complex64],
     weighting: Weighting,
@@ -169,14 +169,14 @@ pub fn levenberg_marquardt_fit(
     if frequencies.is_empty() {
         return Err(FitError::EmptyData);
     }
-    if topology.param_count() == 0 {
+    if circuit::param_count(topology) == 0 {
         return Err(FitError::NoFreeParameters);
     }
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
-    let bounds = topology.param_bounds();
-    let p0 = DVector::from_vec(topology.param_values());
+    let bounds = circuit::param_bounds(topology);
+    let p0 = DVector::from_vec(circuit::param_values(topology));
 
     let mut problem =
         LmProblem { topology, omegas, z_measured, weights, bounds, params: p0.clone() };
@@ -207,8 +207,8 @@ pub fn levenberg_marquardt_fit(
     });
 
     Ok(FitOutcome {
-        node: topology.with_param_values(&params),
-        param_names: topology.param_names(),
+        node: circuit::with_param_values(topology, &params),
+        param_names: circuit::param_names(topology),
         params,
         success,
         iterations: report.number_of_evaluations as u64,
@@ -224,19 +224,19 @@ mod tests {
     use crate::elements::Element;
 
     fn r(value: f64) -> Node {
-        Node::Leaf(Element::R { r: value })
+        Node::Element(Element::R { r: value }, None)
     }
 
     fn cpe(q: f64, alpha: f64) -> Node {
-        Node::Leaf(Element::Cpe { q, alpha })
+        Node::Element(Element::Cpe { q, alpha }, None)
     }
 
-    fn zarc(r: f64, tau_k: f64, gamma: f64) -> Node {
-        Node::Leaf(Element::Zarc { r, tau_k, gamma })
+    fn zarc(r: f64, tau_k: f64, gamma: f64) -> Series {
+        vec![Node::Element(Element::Zarc { r, tau_k, gamma }, None)]
     }
 
-    fn synthetic_data(truth: &Node, frequencies: &[f64]) -> Vec<Complex64> {
-        frequencies.iter().map(|f| truth.impedance(TAU * f)).collect()
+    fn synthetic_data(truth: &[Node], frequencies: &[f64]) -> Vec<Complex64> {
+        frequencies.iter().map(|f| circuit::impedance(truth, TAU * f)).collect()
     }
 
     fn log_spaced_freqs(low: f64, high: f64, n: usize) -> Vec<f64> {
@@ -249,8 +249,8 @@ mod tests {
 
     #[test]
     fn recovers_single_resistor_from_noise_free_data() {
-        let truth = r(100.0);
-        let guess = r(50.0);
+        let truth = vec![r(100.0)];
+        let guess = vec![r(50.0)];
         let freqs = log_spaced_freqs(1.0, 1e5, 20);
         let z = synthetic_data(&truth, &freqs);
 
@@ -264,16 +264,16 @@ mod tests {
     #[test]
     fn recovers_randles_cell_from_noise_free_synthetic_data() {
         // Rs - p(Rct, W) - Cdl-style Randles cell, mirroring the Python test fixtures.
-        let truth = Node::Series(vec![
+        let truth = vec![
             r(20.0),
-            Node::Parallel(vec![r(200.0), Node::Leaf(Element::W { aw: 50.0 })]),
-            Node::Leaf(Element::C { c: 1e-5 }),
-        ]);
-        let guess = Node::Series(vec![
+            Node::Parallel(vec![vec![r(200.0)], vec![Node::Element(Element::W { aw: 50.0 }, None)]]),
+            Node::Element(Element::C { c: 1e-5 }, None),
+        ];
+        let guess = vec![
             r(25.0),
-            Node::Parallel(vec![r(150.0), Node::Leaf(Element::W { aw: 65.0 })]),
-            Node::Leaf(Element::C { c: 1.3e-5 }),
-        ]);
+            Node::Parallel(vec![vec![r(150.0)], vec![Node::Element(Element::W { aw: 65.0 }, None)]]),
+            Node::Element(Element::C { c: 1.3e-5 }, None),
+        ];
         let freqs = log_spaced_freqs(0.1, 1e5, 50);
         let z = synthetic_data(&truth, &freqs);
 
@@ -281,7 +281,7 @@ mod tests {
             levenberg_marquardt_fit(&guess, &freqs, &z, Weighting::Modulus, &FitOptions::default()).unwrap();
 
         assert!(outcome.success);
-        let expected = truth.param_values();
+        let expected = circuit::param_values(&truth);
         for (fitted, exp) in outcome.params.iter().zip(&expected) {
             let rel_err = (fitted - exp).abs() / exp.abs();
             assert!(rel_err < 1e-3, "fitted={:?} expected={:?}", outcome.params, expected);
@@ -293,8 +293,8 @@ mod tests {
         // Two elements whose impedance contributions differ by several orders of
         // magnitude across the sweep -- unweighted LS should be dominated by the
         // low-frequency (large-|Z|) end, giving a different optimum than modulus weighting.
-        let truth = Node::Series(vec![r(1.0), cpe(1e-2, 0.7)]);
-        let guess = Node::Series(vec![r(3.0), cpe(5e-3, 0.5)]);
+        let truth = vec![r(1.0), cpe(1e-2, 0.7)];
+        let guess = vec![r(3.0), cpe(5e-3, 0.5)];
         let freqs = log_spaced_freqs(1.0, 1e6, 40);
         let mut z = synthetic_data(&truth, &freqs);
         // Light deterministic perturbation so the two weightings aren't trivially identical.
@@ -322,7 +322,7 @@ mod tests {
         let outcome =
             levenberg_marquardt_fit(&guess, &freqs, &z, Weighting::Modulus, &FitOptions::default()).unwrap();
 
-        let bounds = guess.param_bounds();
+        let bounds = circuit::param_bounds(&guess);
         for (&value, &(lo, hi)) in outcome.params.iter().zip(&bounds) {
             assert!(value >= lo && value <= hi, "value {value} outside [{lo}, {hi}]");
         }
@@ -330,8 +330,10 @@ mod tests {
 
     #[test]
     fn returns_success_false_but_still_usable_when_max_iterations_too_small() {
-        let truth = Node::Series(vec![r(20.0), Node::Parallel(vec![r(200.0), Node::Leaf(Element::W { aw: 50.0 })])]);
-        let guess = Node::Series(vec![r(80.0), Node::Parallel(vec![r(20.0), Node::Leaf(Element::W { aw: 5.0 })])]);
+        let truth =
+            vec![r(20.0), Node::Parallel(vec![vec![r(200.0)], vec![Node::Element(Element::W { aw: 50.0 }, None)]])];
+        let guess =
+            vec![r(80.0), Node::Parallel(vec![vec![r(20.0)], vec![Node::Element(Element::W { aw: 5.0 }, None)]])];
         let freqs = log_spaced_freqs(0.1, 1e5, 40);
         let z = synthetic_data(&truth, &freqs);
 
@@ -347,8 +349,8 @@ mod tests {
     #[test]
     fn handles_rank_deficient_jacobian_without_panicking() {
         // Far more parameters than independent data points -> JTJ is singular.
-        let truth = Node::Series(vec![r(10.0), r(20.0), r(30.0), r(40.0), r(50.0)]);
-        let guess = Node::Series(vec![r(11.0), r(21.0), r(31.0), r(41.0), r(51.0)]);
+        let truth = vec![r(10.0), r(20.0), r(30.0), r(40.0), r(50.0)];
+        let guess = vec![r(11.0), r(21.0), r(31.0), r(41.0), r(51.0)];
         let freqs = vec![1.0, 10.0];
         let z = synthetic_data(&truth, &freqs);
 
@@ -361,7 +363,7 @@ mod tests {
 
     #[test]
     fn rejects_mismatched_or_empty_input() {
-        let topo = r(100.0);
+        let topo = vec![r(100.0)];
         assert!(matches!(
             levenberg_marquardt_fit(&topo, &[1.0, 2.0], &[Complex64::new(1.0, 0.0)], Weighting::Unit, &FitOptions::default()),
             Err(FitError::LengthMismatch)
@@ -389,13 +391,14 @@ mod tests {
         // legitimately disagree at a handful of points -- that's not a bug in either;
         // the real end-to-end validation for that regime is the LM convergence tests
         // above, which exercise this exact code path and all converge successfully.
-        let topology = Node::Series(vec![r(20.0), Node::Parallel(vec![r(200.0), Node::Leaf(Element::L { l: 0.05 })])]);
+        let topology =
+            vec![r(20.0), Node::Parallel(vec![vec![r(200.0)], vec![Node::Element(Element::L { l: 0.05 }, None)]])];
         let freqs = log_spaced_freqs(1.0, 1e5, 15);
         let omegas: Vec<f64> = freqs.iter().map(|f| TAU * f).collect();
-        let z_measured: Vec<Complex64> = freqs.iter().map(|f| topology.impedance(TAU * f)).collect();
+        let z_measured: Vec<Complex64> = freqs.iter().map(|f| circuit::impedance(&topology, TAU * f)).collect();
         let weights = compute_weights(&z_measured, Weighting::Modulus);
-        let bounds = topology.param_bounds();
-        let p0 = DVector::from_vec(topology.param_values());
+        let bounds = circuit::param_bounds(&topology);
+        let p0 = DVector::from_vec(circuit::param_values(&topology));
 
         let mut problem =
             LmProblem { topology: &topology, omegas, z_measured: &z_measured, weights, bounds, params: p0 };
