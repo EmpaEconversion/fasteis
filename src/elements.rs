@@ -70,6 +70,105 @@ impl Element {
     }
 }
 
+impl Element {
+    /// Short tag used for auto-generated parameter names (e.g. "R", "Cpe", "Zarc").
+    /// This mirrors Rust variant names, not python.rs's constructor names, which
+    /// intentionally diverge in case for a couple of elements (CPE -> Cpe, TLMQ -> Tlmq).
+    pub fn type_tag(&self) -> &'static str {
+        match self {
+            Element::R { .. } => "R",
+            Element::C { .. } => "C",
+            Element::L { .. } => "L",
+            Element::La { .. } => "La",
+            Element::Cpe { .. } => "Cpe",
+            Element::W { .. } => "W",
+            Element::Wo { .. } => "Wo",
+            Element::Ws { .. } => "Ws",
+            Element::G { .. } => "G",
+            Element::Gs { .. } => "Gs",
+            Element::K { .. } => "K",
+            Element::Zarc { .. } => "Zarc",
+            Element::Tlmq { .. } => "Tlmq",
+            Element::T { .. } => "T",
+        }
+    }
+
+    /// Field names in the same order `values()`/`with_values()` use.
+    pub fn param_names(&self) -> &'static [&'static str] {
+        match self {
+            Element::R { .. } => &["r"],
+            Element::C { .. } => &["c"],
+            Element::L { .. } => &["l"],
+            Element::La { .. } => &["l", "alpha"],
+            Element::Cpe { .. } => &["q", "alpha"],
+            Element::W { .. } => &["aw"],
+            Element::Wo { .. } => &["z0", "tau"],
+            Element::Ws { .. } => &["z0", "tau"],
+            Element::G { .. } => &["rg", "tg"],
+            Element::Gs { .. } => &["rg", "tg", "phi"],
+            Element::K { .. } => &["r", "tau_k"],
+            Element::Zarc { .. } => &["r", "tau_k", "gamma"],
+            Element::Tlmq { .. } => &["r_ion", "qs", "gamma"],
+            Element::T { .. } => &["a_coeff", "b_coeff", "a_param", "b_param"],
+        }
+    }
+
+    /// Current field values, same order as `param_names()`.
+    pub fn values(&self) -> Vec<f64> {
+        match *self {
+            Element::R { r } => vec![r],
+            Element::C { c } => vec![c],
+            Element::L { l } => vec![l],
+            Element::La { l, alpha } => vec![l, alpha],
+            Element::Cpe { q, alpha } => vec![q, alpha],
+            Element::W { aw } => vec![aw],
+            Element::Wo { z0, tau } => vec![z0, tau],
+            Element::Ws { z0, tau } => vec![z0, tau],
+            Element::G { rg, tg } => vec![rg, tg],
+            Element::Gs { rg, tg, phi } => vec![rg, tg, phi],
+            Element::K { r, tau_k } => vec![r, tau_k],
+            Element::Zarc { r, tau_k, gamma } => vec![r, tau_k, gamma],
+            Element::Tlmq { r_ion, qs, gamma } => vec![r_ion, qs, gamma],
+            Element::T { a_coeff, b_coeff, a_param, b_param } => vec![a_coeff, b_coeff, a_param, b_param],
+        }
+    }
+
+    /// Rebuild this variant with new values. `values.len()` must equal `param_names().len()`.
+    pub fn with_values(&self, values: &[f64]) -> Element {
+        match *self {
+            Element::R { .. } => Element::R { r: values[0] },
+            Element::C { .. } => Element::C { c: values[0] },
+            Element::L { .. } => Element::L { l: values[0] },
+            Element::La { .. } => Element::La { l: values[0], alpha: values[1] },
+            Element::Cpe { .. } => Element::Cpe { q: values[0], alpha: values[1] },
+            Element::W { .. } => Element::W { aw: values[0] },
+            Element::Wo { .. } => Element::Wo { z0: values[0], tau: values[1] },
+            Element::Ws { .. } => Element::Ws { z0: values[0], tau: values[1] },
+            Element::G { .. } => Element::G { rg: values[0], tg: values[1] },
+            Element::Gs { .. } => Element::Gs { rg: values[0], tg: values[1], phi: values[2] },
+            Element::K { .. } => Element::K { r: values[0], tau_k: values[1] },
+            Element::Zarc { .. } => Element::Zarc { r: values[0], tau_k: values[1], gamma: values[2] },
+            Element::Tlmq { .. } => Element::Tlmq { r_ion: values[0], qs: values[1], gamma: values[2] },
+            Element::T { .. } => {
+                Element::T { a_coeff: values[0], b_coeff: values[1], a_param: values[2], b_param: values[3] }
+            }
+        }
+    }
+
+    /// Default physical-validity bounds per parameter, derived from `param_names()`:
+    /// fields named "alpha" or "gamma" are fractional exponents bounded to [0, 1];
+    /// everything else is a positive magnitude/time-constant bounded to (~0, inf).
+    pub fn param_bounds(&self) -> Vec<(f64, f64)> {
+        self.param_names()
+            .iter()
+            .map(|&name| match name {
+                "alpha" | "gamma" => (0.0, 1.0),
+                _ => (1e-12, f64::INFINITY),
+            })
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +278,45 @@ mod tests {
         let tlmq = Element::Tlmq { r_ion: 5.0, qs: 1e-4, gamma: 0.8 };
         let z2 = tlmq.impedance(10.0);
         assert!(z2.re.is_finite() && z2.im.is_finite());
+    }
+
+    #[test]
+    fn param_names_values_with_values_roundtrip_all_variants() {
+        let samples = [
+            Element::R { r: 5.0 },
+            Element::C { c: 1e-6 },
+            Element::L { l: 2.0 },
+            Element::La { l: 4.0, alpha: 0.9 },
+            Element::Cpe { q: 3.0, alpha: 0.85 },
+            Element::W { aw: 1.0 },
+            Element::Wo { z0: 1.0, tau: 1.0 },
+            Element::Ws { z0: 1.0, tau: 1.0 },
+            Element::G { rg: 10.0, tg: 0.5 },
+            Element::Gs { rg: 10.0, tg: 0.5, phi: 0.3 },
+            Element::K { r: 20.0, tau_k: 0.5 },
+            Element::Zarc { r: 20.0, tau_k: 0.5, gamma: 0.9 },
+            Element::Tlmq { r_ion: 5.0, qs: 1e-4, gamma: 0.8 },
+            Element::T { a_coeff: 1.0, b_coeff: 2.0, a_param: 0.5, b_param: 0.1 },
+        ];
+        for e in samples {
+            assert_eq!(e.param_names().len(), e.values().len());
+            assert_eq!(e.with_values(&e.values()), e);
+        }
+    }
+
+    #[test]
+    fn param_bounds_clamps_alpha_and_gamma_to_unit_interval() {
+        let cpe = Element::Cpe { q: 3.0, alpha: 0.5 };
+        assert_eq!(cpe.param_bounds(), vec![(1e-12, f64::INFINITY), (0.0, 1.0)]);
+
+        let zarc = Element::Zarc { r: 1.0, tau_k: 1.0, gamma: 0.5 };
+        assert_eq!(zarc.param_bounds(), vec![(1e-12, f64::INFINITY), (1e-12, f64::INFINITY), (0.0, 1.0)]);
+
+        // Gs.phi is a tanh-argument scale factor, not a fractional exponent -- must not be unit-clamped.
+        let gs = Element::Gs { rg: 1.0, tg: 1.0, phi: 0.5 };
+        assert_eq!(
+            gs.param_bounds(),
+            vec![(1e-12, f64::INFINITY), (1e-12, f64::INFINITY), (1e-12, f64::INFINITY)]
+        );
     }
 }

@@ -13,6 +13,8 @@ pyo3 = { version = "0.25.0", features = ["num-complex"] }
 num-complex = "0.4.6"
 numpy = "0.25"
 rayon = "1.10"
+levenberg-marquardt = "0.15.0"
+nalgebra = "0.34"
 
 [profile.release]
 lto = "fat"

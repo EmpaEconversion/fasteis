@@ -1,7 +1,17 @@
 from collections.abc import Sequence
+from typing import Literal
 
 import numpy as np
 import numpy.typing as npt
+
+class FitResult:
+    circuit: Circuit
+    params: dict[str, float]
+    stderr: dict[str, float] | None
+    success: bool
+    iterations: int
+    cost: float
+    chi_square: float
 
 class Circuit:
     @staticmethod
@@ -37,3 +47,12 @@ class Circuit:
     @staticmethod
     def parallel(elements: Sequence[Circuit]) -> Circuit: ...
     def impedance(self, frequencies: Sequence[float]) -> npt.NDArray[np.complex128]: ...
+    def fit(
+        self,
+        frequencies: Sequence[float],
+        impedances: Sequence[complex],
+        weight: Literal["modulus", "unit"] = "modulus",
+        max_iterations: int = 200,
+        ftol: float = 1e-10,
+        xtol: float = 1e-10,
+    ) -> FitResult: ...

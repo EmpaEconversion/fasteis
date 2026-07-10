@@ -1,12 +1,15 @@
+use std::collections::HashMap;
 use std::f64::consts::TAU;
 
 use num_complex::Complex64;
 use numpy::{IntoPyArray, PyArray1};
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
 use crate::circuit::Node;
 use crate::elements::Element;
+use crate::fit::{self, FitOptions, Weighting};
 
 /// Below this many frequency points, rayon's ~20 us overhead outweighs
 /// the benefit of parallelizing, so we fall back to a plain sequential map.
@@ -115,7 +118,79 @@ impl Circuit {
         result.into_pyarray(py)
     }
 
+    #[pyo3(signature = (frequencies, impedances, weight="modulus", max_iterations=200, ftol=1e-10, xtol=1e-10))]
+    #[allow(clippy::too_many_arguments)] // mirrors the Python-facing keyword-argument surface
+    fn fit(
+        &self,
+        py: Python<'_>,
+        frequencies: Vec<f64>,
+        impedances: Vec<Complex64>,
+        weight: &str,
+        max_iterations: u32,
+        ftol: f64,
+        xtol: f64,
+    ) -> PyResult<FitResult> {
+        let weighting = match weight {
+            "modulus" => Weighting::Modulus,
+            "unit" => Weighting::Unit,
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown weight scheme {other:?}, expected \"modulus\" or \"unit\""
+                )));
+            }
+        };
+        let options = FitOptions { max_iterations, ftol, xtol, gtol: 1e-10 };
+        let node = self.node.clone();
+        let outcome = py
+            .allow_threads(|| fit::levenberg_marquardt_fit(&node, &frequencies, &impedances, weighting, &options))
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+
+        let params: HashMap<String, f64> =
+            outcome.param_names.iter().cloned().zip(outcome.params.iter().copied()).collect();
+        let stderr: Option<HashMap<String, f64>> =
+            outcome.stderr.map(|se| outcome.param_names.iter().cloned().zip(se).collect());
+
+        Ok(FitResult {
+            circuit: Circuit { node: outcome.node },
+            params,
+            stderr,
+            success: outcome.success,
+            iterations: outcome.iterations,
+            cost: outcome.cost,
+            chi_square: outcome.chi_square,
+        })
+    }
+
     fn __repr__(&self) -> String {
         format!("{:?}", self.node)
+    }
+}
+
+#[pyclass]
+#[derive(Clone)]
+pub struct FitResult {
+    #[pyo3(get)]
+    pub circuit: Circuit,
+    #[pyo3(get)]
+    pub params: HashMap<String, f64>,
+    #[pyo3(get)]
+    pub stderr: Option<HashMap<String, f64>>,
+    #[pyo3(get)]
+    pub success: bool,
+    #[pyo3(get)]
+    pub iterations: u64,
+    #[pyo3(get)]
+    pub cost: f64,
+    #[pyo3(get)]
+    pub chi_square: f64,
+}
+
+#[pymethods]
+impl FitResult {
+    fn __repr__(&self) -> String {
+        format!(
+            "FitResult(success={}, iterations={}, chi_square={:.6e}, params={:?})",
+            self.success, self.iterations, self.chi_square, self.params
+        )
     }
 }
