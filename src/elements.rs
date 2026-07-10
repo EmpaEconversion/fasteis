@@ -18,6 +18,19 @@ pub enum Element {
     T { a_coeff: f64, b_coeff: f64, a_param: f64, b_param: f64 },
 }
 
+/// `z.powf(exponent)`, special-cased for exponents of 1.0 and 0.5.
+/// Can skip round-trips to_polar and from_polar.
+#[inline]
+fn complex_powf(z: Complex64, exponent: f64) -> Complex64 {
+    if exponent == 1.0 {
+        z  // skip completey
+    } else if exponent == 0.5 {
+        z.sqrt()  // faster shortcut for pure real or pure imaginary z
+    } else {
+        z.powf(exponent)
+    }
+}
+
 impl Element {
     pub fn impedance(&self, omega: f64) -> Complex64 {
         let j = Complex64::new(0.0, 1.0);
@@ -26,8 +39,8 @@ impl Element {
             Element::R { r } => Complex64::new(r, 0.0),
             Element::C { c } => Complex64::new(1.0, 0.0) / (c * jw),
             Element::L { l } => l * jw,
-            Element::La { l, alpha } => (l * jw).powf(alpha),
-            Element::Cpe { q, alpha } => Complex64::new(1.0, 0.0) / (q * jw.powf(alpha)),
+            Element::La { l, alpha } => complex_powf(l * jw, alpha),
+            Element::Cpe { q, alpha } => (q * complex_powf(jw, alpha)).inv(),
             Element::W { aw } => aw * (Complex64::new(1.0, 0.0) - j) / Complex64::new(omega.sqrt(), 0.0),
             Element::Wo { z0, tau } => {
                 let x = (jw * tau).sqrt();
@@ -43,9 +56,9 @@ impl Element {
                 rg / (s * (s * phi).tanh())
             }
             Element::K { r, tau_k } => r / (Complex64::new(1.0, 0.0) + jw * tau_k),
-            Element::Zarc { r, tau_k, gamma } => r / (Complex64::new(1.0, 0.0) + (jw * tau_k).powf(gamma)),
+            Element::Zarc { r, tau_k, gamma } => r / (Complex64::new(1.0, 0.0) + complex_powf(jw * tau_k, gamma)),
             Element::Tlmq { r_ion, qs, gamma } => {
-                let zs = Complex64::new(1.0, 0.0) / (qs * jw.powf(gamma));
+                let zs = (qs * complex_powf(jw, gamma)).inv();
                 let y = (r_ion / zs).sqrt();
                 (r_ion * zs).sqrt() / y.tanh()
             }
@@ -63,6 +76,24 @@ mod tests {
 
     fn assert_close(a: Complex64, b: Complex64, tol: f64) {
         assert!((a - b).norm() < tol, "{:?} != {:?}", a, b);
+    }
+
+    #[test]
+    fn complex_powf_boundary_cases_match_general_powf() {
+        // Genuinely complex z (not real, not imaginary-zero), including the
+        // pure-imaginary jw shape that Cpe/La/Zarc/Tlmq actually feed in.
+        let zs = [
+            Complex64::new(3.0, 4.0),
+            Complex64::new(-2.0, 7.5),
+            Complex64::new(0.0, 1e-3),   // jw at a small omega
+            Complex64::new(0.0, 1e6),    // jw at a large omega
+            Complex64::new(-1.0, -1.0),
+        ];
+        for &z in &zs {
+            assert_close(complex_powf(z, 1.0), z.powf(1.0), 1e-9);
+            assert_close(complex_powf(z, 0.5), z.sqrt(), 1e-9);
+            assert_close(complex_powf(z, 0.5), z.powf(0.5), 1e-9);
+        }
     }
 
     #[test]

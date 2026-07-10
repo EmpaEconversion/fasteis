@@ -1,10 +1,18 @@
 use std::f64::consts::TAU;
 
 use num_complex::Complex64;
+use numpy::{IntoPyArray, PyArray1};
 use pyo3::prelude::*;
+use rayon::prelude::*;
 
 use crate::circuit::Node;
 use crate::elements::Element;
+
+/// Below this many frequency points, rayon's ~20 us overhead outweighs
+/// the benefit of parallelizing, so we fall back to a plain sequential map.
+/// Depends on circuit complexity, R breaks even at 12_000, randles at 1_500,
+/// more complex would be lower.
+const PARALLEL_THRESHOLD: usize = 1_000;
 
 #[pyclass]
 #[derive(Clone)]
@@ -95,8 +103,16 @@ impl Circuit {
         Circuit { node: Node::Parallel(elements.into_iter().map(|c| c.node).collect()) }
     }
 
-    fn impedance(&self, frequencies: Vec<f64>) -> Vec<Complex64> {
-        frequencies.iter().map(|f| self.node.impedance(TAU * f)).collect()
+    fn impedance<'py>(&self, py: Python<'py>, frequencies: Vec<f64>) -> Bound<'py, PyArray1<Complex64>> {
+        let node = &self.node;
+        let result: Vec<Complex64> = py.allow_threads(|| {
+            if frequencies.len() >= PARALLEL_THRESHOLD {
+                frequencies.par_iter().map(|f| node.impedance(TAU * f)).collect()
+            } else {
+                frequencies.iter().map(|f| node.impedance(TAU * f)).collect()
+            }
+        });
+        result.into_pyarray(py)
     }
 
     fn __repr__(&self) -> String {

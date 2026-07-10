@@ -11,3 +11,9 @@ crate-type = ["cdylib"]
 [dependencies]
 pyo3 = { version = "0.25.0", features = ["num-complex"] }
 num-complex = "0.4.6"
+numpy = "0.25"
+rayon = "1.10"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
