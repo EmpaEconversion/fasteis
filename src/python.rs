@@ -172,7 +172,16 @@ impl Circuit {
         result.into_pyarray(py)
     }
 
-    #[pyo3(signature = (frequencies, impedances, weight="modulus", max_iterations=200, ftol=1e-10, xtol=1e-10))]
+    #[pyo3(signature = (
+        frequencies, impedances, weight="modulus", method="levenberg_marquardt",
+        max_iterations=200, ftol=1e-10, xtol=1e-10,
+        num_particles=200, generations=1000,
+        nelder_mead_iterations=2000,
+        de_evaluations=20_000,
+        sa_iterations=5000, sa_initial_temperature=2.0,
+        basin_hopping_hops=20, basin_hopping_step_size=1.0, basin_hopping_temperature=1.0,
+        seed=None,
+    ))]
     #[allow(clippy::too_many_arguments)] // mirrors the Python-facing keyword-argument surface
     fn fit(
         &self,
@@ -180,9 +189,20 @@ impl Circuit {
         frequencies: Vec<f64>,
         impedances: Vec<Complex64>,
         weight: &str,
+        method: &str,
         max_iterations: u32,
         ftol: f64,
         xtol: f64,
+        num_particles: usize,
+        generations: u64,
+        nelder_mead_iterations: u64,
+        de_evaluations: usize,
+        sa_iterations: u64,
+        sa_initial_temperature: f64,
+        basin_hopping_hops: u32,
+        basin_hopping_step_size: f64,
+        basin_hopping_temperature: f64,
+        seed: Option<u64>,
     ) -> PyResult<FitResult> {
         let weighting = match weight {
             "modulus" => Weighting::Modulus,
@@ -193,10 +213,53 @@ impl Circuit {
                 )));
             }
         };
-        let options = FitOptions { max_iterations, ftol, xtol, gtol: 1e-10 };
         let node = self.node.clone();
         let outcome = py
-            .allow_threads(|| fit::levenberg_marquardt_fit(&node, &frequencies, &impedances, weighting, &options))
+            .allow_threads(|| match method {
+                "levenberg_marquardt" => {
+                    let options = FitOptions { max_iterations, ftol, xtol, gtol: 1e-10 };
+                    fit::levenberg_marquardt_fit(&node, &frequencies, &impedances, weighting, &options)
+                }
+                "particle_swarm" => fit::particle_swarm_fit(
+                    &node,
+                    &frequencies,
+                    &impedances,
+                    weighting,
+                    num_particles,
+                    generations,
+                    seed,
+                ),
+                "nelder_mead" => fit::nelder_mead_fit(
+                    &node,
+                    &frequencies,
+                    &impedances,
+                    weighting,
+                    nelder_mead_iterations,
+                ),
+                "differential_evolution" => {
+                    fit::differential_evolution_fit(&node, &frequencies, &impedances, weighting, de_evaluations)
+                }
+                "simulated_annealing" => fit::simulated_annealing_fit(
+                    &node,
+                    &frequencies,
+                    &impedances,
+                    weighting,
+                    sa_iterations,
+                    sa_initial_temperature,
+                    seed,
+                ),
+                "basin_hopping" => fit::basin_hopping_fit(
+                    &node,
+                    &frequencies,
+                    &impedances,
+                    weighting,
+                    basin_hopping_hops,
+                    basin_hopping_step_size,
+                    basin_hopping_temperature,
+                    seed,
+                ),
+                other => Err(fit::FitError::UnknownMethod(other.to_string())),
+            })
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
         let params: HashMap<String, f64> =
