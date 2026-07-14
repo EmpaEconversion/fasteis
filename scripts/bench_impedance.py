@@ -3,6 +3,7 @@
 Benchmark across every circuit element and every composed circuit topology used
 in the correctness regression suite (see tests/circuit_cases.py).
 """
+
 from __future__ import annotations
 
 import sys
@@ -52,10 +53,12 @@ def bench_elements() -> list[BenchRow]:
         freqs_list = _dense_freqs(freqs)
 
         circuit = getattr(eis.Circuit, name)(*params)
-        eis_ms = _ms_per_call(lambda circuit=circuit, freqs_list=freqs_list: circuit.impedance(freqs_list))
+        eis_ms = _ms_per_call(
+            lambda circuit=circuit, freqs_list=freqs_list: circuit.impedance(freqs_list)
+        )
         ipy_ms = _ms_per_call(
-            lambda name=name, params=params, freqs_list=freqs_list: ipy.circuit_elements[name](
-                list(params), freqs_list
+            lambda name=name, params=params, freqs_list=freqs_list: (
+                ipy.circuit_elements[name](list(params), freqs_list)
             )
         )
         rows.append((name, eis_ms, ipy_ms))
@@ -67,8 +70,14 @@ def bench_compositions() -> list[BenchRow]:
     rows: list[BenchRow] = []
     for case in COMPOSITION_CASES:
         freqs_list = _dense_freqs(case.freqs)
-        eis_ms = _ms_per_call(lambda case=case, freqs_list=freqs_list: case.eis_circuit.impedance(freqs_list))
-        ipy_ms = _ms_per_call(lambda case=case, freqs_list=freqs_list: case.ipy_result(freqs_list))
+        eis_ms = _ms_per_call(
+            lambda case=case, freqs_list=freqs_list: case.eis_circuit.impedance(
+                freqs_list
+            )
+        )
+        ipy_ms = _ms_per_call(
+            lambda case=case, freqs_list=freqs_list: case.ipy_result(freqs_list)
+        )
         rows.append((case.label, eis_ms, ipy_ms))
     return rows
 
