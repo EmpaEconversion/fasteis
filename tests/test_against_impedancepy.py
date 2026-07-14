@@ -2,6 +2,7 @@
 
 Compare against reference implementations in impedance.py.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -36,7 +37,9 @@ FLAT_CASES: list[tuple[str, ElementParams, FreqArray]] = [
     FLAT_CASES,
     ids=[f"{name}{params}" for name, params, _ in FLAT_CASES],
 )
-def test_element_matches_impedancepy(name: str, params: ElementParams, freqs: FreqArray) -> None:
+def test_element_matches_impedancepy(
+    name: str, params: ElementParams, freqs: FreqArray
+) -> None:
     """Test individual elements."""
     circuit = getattr(eis.Circuit, name)(*params)
     got = np.array(circuit.impedance(list(freqs)))

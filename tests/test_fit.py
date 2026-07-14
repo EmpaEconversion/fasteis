@@ -1,4 +1,5 @@
 """Tests for Circuit.fit()."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -48,35 +49,48 @@ def _field_names(name: str) -> list[str]:
 
 
 def _make_randles(rs: float, rct: float, cdl: float, aw: float) -> eis.Circuit:
-    return eis.Circuit.series([
-        eis.Circuit.R(rs),
-        eis.Circuit.parallel([
-            eis.Circuit.series([eis.Circuit.R(rct), eis.Circuit.W(aw)]),
-            eis.Circuit.C(cdl),
-        ]),
-    ])
+    return eis.Circuit.series(
+        [
+            eis.Circuit.R(rs),
+            eis.Circuit.parallel(
+                [
+                    eis.Circuit.series([eis.Circuit.R(rct), eis.Circuit.W(aw)]),
+                    eis.Circuit.C(cdl),
+                ]
+            ),
+        ]
+    )
 
 
-def _make_three_branch_parallel(r0: float, r1: float, c: float) -> eis.Circuit:
-    return eis.Circuit.parallel([
-        eis.Circuit.R(r0),
-        eis.Circuit.R(r1),
-        eis.Circuit.C(c),
-    ])
+def _make_three_branch_parallel(r: float, c: float, l: float) -> eis.Circuit:
+    # R, C, L in parallel
+    return eis.Circuit.parallel(
+        [
+            eis.Circuit.R(r),
+            eis.Circuit.C(c),
+            eis.Circuit.L(l),
+        ]
+    )
 
 
 @pytest.mark.parametrize(
     ("truth", "guess"),
     [
-        (_make_randles(20.0, 150.0, 20e-6, 60.0), _make_randles(35.0, 90.0, 8e-6, 90.0)),
         (
-            _make_three_branch_parallel(100.0, 500.0, 1e-6),
-            _make_three_branch_parallel(60.0, 900.0, 4e-6),
+            _make_randles(20.0, 150.0, 20e-6, 60.0),
+            _make_randles(35.0, 90.0, 8e-6, 90.0),
+        ),
+        (
+            _make_three_branch_parallel(100.0, 1e-6, 1e-3),
+            _make_three_branch_parallel(60.0, 4e-6, 4e-3),
         ),
     ],
     ids=["randles_cell", "three_branch_parallel"],
 )
-def test_fit_recovers_impedance_for_composed_topologies(truth: eis.Circuit, guess: eis.Circuit) -> None:
+def test_fit_recovers_impedance_for_composed_topologies(
+    truth: eis.Circuit, guess: eis.Circuit
+) -> None:
+    """Fit synthetic circuits."""
     z = _synthetic(truth)
 
     result = guess.fit(FREQS, list(z))
@@ -87,9 +101,10 @@ def test_fit_recovers_impedance_for_composed_topologies(truth: eis.Circuit, gues
 
 
 def test_fit_weight_modulus_vs_unit_differ() -> None:
-    # A circuit whose impedance contributions span several orders of magnitude
-    # across the sweep, plus light synthetic noise, so unweighted least-squares
-    # (dominated by the largest-|Z| points) diverges from modulus weighting.
+    """Fit synthetic circuits with noise across large freq range.
+
+    Weighting by unit vs modulus results in different fits.
+    """
     truth = eis.Circuit.series([eis.Circuit.R(1.0), eis.Circuit.CPE(1e-2, 0.7)])
     guess = eis.Circuit.series([eis.Circuit.R(3.0), eis.Circuit.CPE(5e-3, 0.5)])
     freqs = list(np.logspace(0, 6, 40))
@@ -104,6 +119,7 @@ def test_fit_weight_modulus_vs_unit_differ() -> None:
 
 
 def test_fit_reports_success_and_finite_stderr() -> None:
+    """Fit reports success, has sensible stderr."""
     truth = _make_randles(20.0, 150.0, 20e-6, 60.0)
     guess = _make_randles(25.0, 120.0, 1.5e-5, 70.0)
     z = _synthetic(truth)
@@ -119,12 +135,14 @@ def test_fit_reports_success_and_finite_stderr() -> None:
 
 
 def test_fit_rejects_mismatched_lengths() -> None:
+    """Error on mismatched f and Z lengths."""
     circuit = eis.Circuit.R(100.0)
     with pytest.raises(ValueError):
         circuit.fit(FREQS, [complex(1.0, 0.0)])
 
 
 def test_fit_rejects_unknown_weight() -> None:
+    """Error on bad inputs."""
     circuit = eis.Circuit.R(100.0)
     z = _synthetic(circuit)
     with pytest.raises(ValueError):
