@@ -27,6 +27,16 @@ fn leaf(element: Element) -> Series {
     vec![Node::Element(element, None)]
 }
 
+fn parse_weighting(weight: &str) -> PyResult<Weighting> {
+    match weight {
+        "modulus" => Ok(Weighting::Modulus),
+        "unit" => Ok(Weighting::Unit),
+        other => Err(PyValueError::new_err(format!(
+            "unknown weight scheme {other:?}, expected \"modulus\" or \"unit\""
+        ))),
+    }
+}
+
 #[allow(non_snake_case)] // element codes intentionally mirror impedance.py's naming (R, C, CPE, ...)
 #[pymethods]
 impl Circuit {
@@ -172,6 +182,62 @@ impl Circuit {
         result.into_pyarray(py)
     }
 
+    /// Current parameter values, in `param_names()` order.
+    fn param_values(&self) -> Vec<f64> {
+        circuit::param_values(&self.node)
+    }
+
+    /// Default physical-validity `(lo, hi)` bounds per parameter, in
+    /// `param_names()` order. `hi` is `inf` for open-bound parameters.
+    fn param_bounds(&self) -> Vec<(f64, f64)> {
+        circuit::param_bounds(&self.node)
+    }
+
+    /// Weighted residual vector (interleaved `[re0, im0, re1, im1, ...]`) for an
+    /// arbitrary parameter vector -- the same building block `fit()` uses
+    /// internally for Levenberg-Marquardt, exposed so an external optimizer (e.g.
+    /// `scipy.optimize.least_squares`) can drive this circuit's math directly.
+    fn residuals(
+        &self,
+        py: Python<'_>,
+        params: Vec<f64>,
+        frequencies: Vec<f64>,
+        impedances: Vec<Complex64>,
+        weight: &str,
+    ) -> PyResult<Vec<f64>> {
+        if frequencies.len() != impedances.len() {
+            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+        }
+        let weighting = parse_weighting(weight)?;
+        let node = &self.node;
+        let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
+        let weights = fit::compute_weights(&impedances, weighting);
+        Ok(py.allow_threads(|| fit::residuals(node, &params, &omegas, &impedances, &weights)))
+    }
+
+    /// Central-difference Jacobian of `residuals()` at `params`, shape `(2 *
+    /// len(frequencies), len(params))` -- rows are residuals, columns are
+    /// parameters, matching what `scipy.optimize.least_squares(jac=...)` expects.
+    fn jacobian(
+        &self,
+        py: Python<'_>,
+        params: Vec<f64>,
+        frequencies: Vec<f64>,
+        impedances: Vec<Complex64>,
+        weight: &str,
+    ) -> PyResult<Vec<Vec<f64>>> {
+        if frequencies.len() != impedances.len() {
+            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+        }
+        let weighting = parse_weighting(weight)?;
+        let node = &self.node;
+        let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
+        let weights = fit::compute_weights(&impedances, weighting);
+        let columns = py.allow_threads(|| fit::jacobian_columns(node, &params, &omegas, &impedances, &weights));
+        let n_rows = columns.first().map_or(0, Vec::len);
+        Ok((0..n_rows).map(|i| columns.iter().map(|col| col[i]).collect()).collect())
+    }
+
     #[pyo3(signature = (
         frequencies, impedances, weight="modulus", method="levenberg_marquardt",
         max_iterations=200, ftol=1e-10, xtol=1e-10,
@@ -204,15 +270,7 @@ impl Circuit {
         basin_hopping_temperature: f64,
         seed: Option<u64>,
     ) -> PyResult<FitResult> {
-        let weighting = match weight {
-            "modulus" => Weighting::Modulus,
-            "unit" => Weighting::Unit,
-            other => {
-                return Err(PyValueError::new_err(format!(
-                    "unknown weight scheme {other:?}, expected \"modulus\" or \"unit\""
-                )));
-            }
-        };
+        let weighting = parse_weighting(weight)?;
         let node = self.node.clone();
         let outcome = py
             .allow_threads(|| match method {

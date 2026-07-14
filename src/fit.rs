@@ -73,7 +73,7 @@ impl std::fmt::Display for FitError {
     }
 }
 
-fn compute_weights(z_measured: &[Complex64], weighting: Weighting) -> Vec<f64> {
+pub(crate) fn compute_weights(z_measured: &[Complex64], weighting: Weighting) -> Vec<f64> {
     match weighting {
         Weighting::Unit => vec![1.0; z_measured.len()],
         Weighting::Modulus => z_measured.iter().map(|z| z.norm().max(1e-30)).collect(),
@@ -83,7 +83,13 @@ fn compute_weights(z_measured: &[Complex64], weighting: Weighting) -> Vec<f64> {
 /// Interleaved `[re0, im0, re1, im1, ...]` weighted residual vector, length `2N`.
 /// Optimizer-agnostic: operates on plain `Vec<f64>`, reused unchanged by any future
 /// non-LM backend (see the `argmin` extensibility note in the fit() design).
-fn residuals(topology: &[Node], p: &[f64], omegas: &[f64], z_measured: &[Complex64], weights: &[f64]) -> Vec<f64> {
+pub(crate) fn residuals(
+    topology: &[Node],
+    p: &[f64],
+    omegas: &[f64],
+    z_measured: &[Complex64],
+    weights: &[f64],
+) -> Vec<f64> {
     let node = circuit::with_param_values(topology, p);
     let mut r = vec![0.0; 2 * omegas.len()];
     for (i, &omega) in omegas.iter().enumerate() {
@@ -99,7 +105,7 @@ fn residuals(topology: &[Node], p: &[f64], omegas: &[f64], z_measured: &[Complex
 /// rayon -- the natural parallelism axis given the typically small (2-15) parameter count.
 /// Perturbations are not clamped to physical bounds: impedance() is smooth well outside
 /// those ranges, so clamping here would bias the derivative estimate near a boundary.
-fn jacobian_columns(
+pub(crate) fn jacobian_columns(
     topology: &[Node],
     p: &[f64],
     omegas: &[f64],
