@@ -88,9 +88,105 @@ pub fn param_bounds(series: &[Node]) -> Vec<(f64, f64)> {
     leaves(series).into_iter().flat_map(|(e, _)| e.param_bounds()).collect()
 }
 
+/// Physical units, in the same order as `param_names()`.
+pub fn param_units(series: &[Node]) -> Vec<&'static str> {
+    leaves(series).into_iter().flat_map(|(e, _)| e.param_units().iter().copied()).collect()
+}
+
 /// Total number of free parameters across all leaves.
 pub fn param_count(series: &[Node]) -> usize {
     leaves(series).iter().map(|(e, _)| e.param_names().len()).sum()
+}
+
+/// Format numbers for printing: plain decimal for "normal-sized" numbers
+fn fmt_num(x: f64) -> String {
+    if x.is_infinite() || x == 0.0 || (1e-4..1e6).contains(&x.abs()) {
+        format!("{x}")
+    } else {
+        format!("{x:e}")
+    }
+}
+
+/// Human-readable "name = value [unit]  bounds (lo, hi)" table
+/// Used by `Circuit::__repr__` and `describe_param_error`.
+pub fn describe_params(names: &[String], values: &[f64], units: &[&str], bounds: &[(f64, f64)]) -> String {
+    let width = names.iter().map(String::len).max().unwrap_or(0);
+    names
+        .iter()
+        .zip(values)
+        .zip(units)
+        .zip(bounds)
+        .map(|(((name, &value), unit), &(lo, hi))| {
+            format!(
+                "  {name:width$} = {:<10} [{unit}]  bounds ({}, {})",
+                fmt_num(value),
+                fmt_num(lo),
+                fmt_num(hi)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// Standard Levenshtein edit distance between two strings.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut dp = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for (i, row) in dp.iter_mut().enumerate() {
+        row[0] = i;
+    }
+    for j in 0..=b.len() {
+        dp[0][j] = j;
+    }
+    for i in 1..=a.len() {
+        for j in 1..=b.len() {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            dp[i][j] = (dp[i - 1][j] + 1).min(dp[i][j - 1] + 1).min(dp[i - 1][j - 1] + cost);
+        }
+    }
+    dp[a.len()][b.len()]
+}
+
+/// Closest known parameter name to `name`, if any candidate is close enough to
+/// plausibly be a typo of it (edit distance <= max(2, name.len() / 2)).
+pub fn closest_param_name<'a>(name: &str, candidates: &'a [String]) -> Option<&'a str> {
+    let threshold = (name.chars().count() / 2).max(2);
+    candidates
+        .iter()
+        .map(|c| (c.as_str(), levenshtein(name, c)))
+        .min_by_key(|&(_, dist)| dist)
+        .filter(|&(_, dist)| dist <= threshold)
+        .map(|(c, _)| c)
+}
+
+/// Error body for a bad named-parameter dict: one line per unknown key (with a
+/// "did you mean" suggestion when applicable), one line listing any missing
+/// required keys, then the full valid-parameter table (name, unit, bounds).
+pub fn describe_param_error(
+    names: &[String],
+    units: &[&str],
+    bounds: &[(f64, f64)],
+    unknown: &[&str],
+    missing: &[&str],
+) -> String {
+    let mut lines = Vec::new();
+    for &key in unknown {
+        match closest_param_name(key, names) {
+            Some(suggestion) => lines.push(format!("unknown parameter {key:?} (did you mean {suggestion:?}?)")),
+            None => lines.push(format!("unknown parameter {key:?}")),
+        }
+    }
+    if !missing.is_empty() {
+        lines.push(format!("missing parameter(s): {missing:?}"));
+    }
+    lines.push(String::new());
+    lines.push("valid parameters for this circuit:".to_string());
+    let width = names.iter().map(String::len).max().unwrap_or(0);
+    for ((name, unit), &(lo, hi)) in names.iter().zip(units).zip(bounds) {
+        lines.push(format!("  {name:width$}  [{unit}]  bounds ({}, {})", fmt_num(lo), fmt_num(hi)));
+    }
+    lines.join("\n")
 }
 
 /// Rebuild the series with a new flat parameter vector, consumed in the same
@@ -355,5 +451,56 @@ mod tests {
     fn accepts_alias_codes_matching_python_static_method_casing() {
         let circuit = parse("CPE0-TLMQ1").unwrap();
         assert_eq!(param_names(&circuit), vec!["CPE0.q", "CPE0.alpha", "TLMQ1.r_ion", "TLMQ1.qs", "TLMQ1.gamma"]);
+    }
+
+    #[test]
+    fn describe_params_contains_every_name_value_unit_and_bound() {
+        let circuit = parse("R0-Cpe1").unwrap();
+        let names = param_names(&circuit);
+        let values = param_values(&circuit);
+        let units = param_units(&circuit);
+        let bounds = param_bounds(&circuit);
+        let text = describe_params(&names, &values, &units, &bounds);
+        for name in &names {
+            assert!(text.contains(name.as_str()), "missing {name} in {text}");
+        }
+        assert!(text.contains("ohm"));
+        assert!(text.contains("ohm^-1*s^alpha"));
+    }
+
+    #[test]
+    fn closest_param_name_suggests_near_miss_typo() {
+        let names = vec!["R0.r".to_string(), "Cpe1.q".to_string(), "Cpe1.alpha".to_string()];
+        assert_eq!(closest_param_name("Cpe1.alph", &names), Some("Cpe1.alpha"));
+    }
+
+    #[test]
+    fn closest_param_name_gives_no_suggestion_for_unrelated_key() {
+        let names = vec!["R0.r".to_string(), "Cpe1.q".to_string(), "Cpe1.alpha".to_string()];
+        assert_eq!(closest_param_name("bogus", &names), None);
+    }
+
+    #[test]
+    fn describe_param_error_lists_all_valid_names_and_suggests_typo_fix() {
+        let circuit = parse("R0-Cpe1").unwrap();
+        let names = param_names(&circuit);
+        let units = param_units(&circuit);
+        let bounds = param_bounds(&circuit);
+        let text = describe_param_error(&names, &units, &bounds, &["Cpe1.alph"], &[]);
+        assert!(text.contains("did you mean \"Cpe1.alpha\"?"));
+        for name in &names {
+            assert!(text.contains(name.as_str()), "missing {name} in {text}");
+        }
+    }
+
+    #[test]
+    fn describe_param_error_lists_missing_keys() {
+        let circuit = parse("R0-C1").unwrap();
+        let names = param_names(&circuit);
+        let units = param_units(&circuit);
+        let bounds = param_bounds(&circuit);
+        let text = describe_param_error(&names, &units, &bounds, &[], &["C1.c"]);
+        assert!(text.contains("missing parameter(s)"));
+        assert!(text.contains("C1.c"));
     }
 }

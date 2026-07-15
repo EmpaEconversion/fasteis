@@ -124,8 +124,8 @@ impl Circuit {
     /// `"R0-p(R1-C1,R2-Cpe2)"`. The string carries no parameter values --
     /// every element gets a placeholder default; set real values afterward
     /// with `with_values()` or `with_named_values()`.
-    #[staticmethod]
-    fn from_string(s: &str) -> PyResult<Circuit> {
+    #[new]
+    fn new(s: &str) -> PyResult<Circuit> {
         let node = circuit::parse(s).map_err(|e| PyValueError::new_err(e.to_string()))?;
         Ok(Circuit { node })
     }
@@ -155,18 +155,18 @@ impl Circuit {
     fn with_named_values(&self, values: HashMap<String, f64>) -> PyResult<Circuit> {
         let names = circuit::param_names(&self.node);
 
-        let unknown: Vec<&String> = values.keys().filter(|k| !names.contains(k)).collect();
-        if !unknown.is_empty() {
-            return Err(PyValueError::new_err(format!("unknown parameter name(s): {unknown:?}")));
+        let unknown: Vec<&str> = values.keys().filter(|k| !names.contains(k)).map(String::as_str).collect();
+        let missing: Vec<&str> = names.iter().filter(|n| !values.contains_key(*n)).map(String::as_str).collect();
+
+        if !unknown.is_empty() || !missing.is_empty() {
+            let units = circuit::param_units(&self.node);
+            let bounds = circuit::param_bounds(&self.node);
+            return Err(PyValueError::new_err(circuit::describe_param_error(
+                &names, &units, &bounds, &unknown, &missing,
+            )));
         }
 
-        let mut positional = Vec::with_capacity(names.len());
-        for name in &names {
-            match values.get(name) {
-                Some(&v) => positional.push(v),
-                None => return Err(PyValueError::new_err(format!("missing value for parameter {name:?}"))),
-            }
-        }
+        let positional: Vec<f64> = names.iter().map(|name| values[name]).collect();
         Ok(Circuit { node: circuit::with_param_values(&self.node, &positional) })
     }
 
@@ -191,6 +191,11 @@ impl Circuit {
     /// `param_names()` order. `hi` is `inf` for open-bound parameters.
     fn param_bounds(&self) -> Vec<(f64, f64)> {
         circuit::param_bounds(&self.node)
+    }
+
+    /// Physical units per parameter
+    fn param_units(&self) -> Vec<&'static str> {
+        circuit::param_units(&self.node)
     }
 
     /// Weighted residual vector (interleaved `[re0, im0, re1, im1, ...]`) for an
@@ -337,7 +342,16 @@ impl Circuit {
     }
 
     fn __repr__(&self) -> String {
-        format!("{:?}", self.node)
+        let names = circuit::param_names(&self.node);
+        let values = circuit::param_values(&self.node);
+        let units = circuit::param_units(&self.node);
+        let bounds = circuit::param_bounds(&self.node);
+        format!(
+            "Circuit ({} parameter{})\n{}",
+            names.len(),
+            if names.len() == 1 { "" } else { "s" },
+            circuit::describe_params(&names, &values, &units, &bounds)
+        )
     }
 }
 

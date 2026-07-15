@@ -155,6 +155,26 @@ impl Element {
         }
     }
 
+    /// Physical units per parameter, `"-"` = dimensionless
+    pub fn param_units(&self) -> &'static [&'static str] {
+        match self {
+            Element::R { .. } => &["ohm"],
+            Element::C { .. } => &["F"],
+            Element::L { .. } => &["H"],
+            Element::La { .. } => &["H*s", "-"],
+            Element::Cpe { .. } => &["ohm^-1*s^alpha", "-"],
+            Element::W { .. } => &["ohm*s^-0.5"],
+            Element::Wo { .. } => &["ohm", "s"],
+            Element::Ws { .. } => &["ohm", "s"],
+            Element::G { .. } => &["ohm", "s"],
+            Element::Gs { .. } => &["ohm", "s", "-"],
+            Element::K { .. } => &["ohm", "s"],
+            Element::Zarc { .. } => &["ohm", "s", "-"],
+            Element::Tlmq { .. } => &["ohm", "F*s^(gamma-1)", "-"],
+            Element::T { .. } => &["ohm*m^2", "ohm*m^2", "-", "s"],
+        }
+    }
+
     /// Default physical-validity bounds per parameter, derived from `param_names()`:
     /// fields named "alpha" or "gamma" are fractional exponents bounded to [0, 1];
     /// everything else is a positive magnitude/time-constant bounded to (~0, inf).
@@ -329,6 +349,36 @@ mod tests {
             assert_eq!(e.param_names().len(), e.values().len());
             assert_eq!(e.with_values(&e.values()), e);
         }
+    }
+
+    #[test]
+    fn param_units_lengths_match_param_names_for_all_variants() {
+        let samples = [
+            Element::R { r: 5.0 },
+            Element::C { c: 1e-6 },
+            Element::L { l: 2.0 },
+            Element::La { l: 4.0, alpha: 0.9 },
+            Element::Cpe { q: 3.0, alpha: 0.85 },
+            Element::W { aw: 1.0 },
+            Element::Wo { z0: 1.0, tau: 1.0 },
+            Element::Ws { z0: 1.0, tau: 1.0 },
+            Element::G { rg: 10.0, tg: 0.5 },
+            Element::Gs { rg: 10.0, tg: 0.5, phi: 0.3 },
+            Element::K { r: 20.0, tau_k: 0.5 },
+            Element::Zarc { r: 20.0, tau_k: 0.5, gamma: 0.9 },
+            Element::Tlmq { r_ion: 5.0, qs: 1e-4, gamma: 0.8 },
+            Element::T { a_coeff: 1.0, b_coeff: 2.0, a_param: 0.5, b_param: 0.1 },
+        ];
+        for e in samples {
+            assert_eq!(e.param_units().len(), e.param_names().len());
+        }
+    }
+
+    #[test]
+    fn param_units_exact_values() {
+        assert_eq!(Element::R { r: 1.0 }.param_units(), &["ohm"]);
+        assert_eq!(Element::Cpe { q: 1.0, alpha: 0.5 }.param_units(), &["ohm^-1*s^alpha", "-"]);
+        assert_eq!(Element::Zarc { r: 1.0, tau_k: 1.0, gamma: 0.5 }.param_units(), &["ohm", "s", "-"]);
     }
 
     #[test]

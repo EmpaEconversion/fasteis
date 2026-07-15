@@ -1,4 +1,4 @@
-"""Tests for eis.Circuit.from_string() and the associated value-setting API."""
+"""Tests for the eis.Circuit(str) constructor and the associated value-setting API."""
 
 from __future__ import annotations
 
@@ -11,17 +11,17 @@ FREQS: list[float] = list(np.logspace(-1, 6, 60))
 
 
 def test_from_string_flat_series_param_names() -> None:
-    circuit = eis.Circuit.from_string("R0-C1")
+    circuit = eis.Circuit("R0-C1")
     assert circuit.param_names() == ["R0.r", "C1.c"]
 
 
 def test_from_string_series_ending_in_parallel_param_names() -> None:
-    circuit = eis.Circuit.from_string("R0-p(R1,Cpe1)")
+    circuit = eis.Circuit("R0-p(R1,Cpe1)")
     assert circuit.param_names() == ["R0.r", "R1.r", "Cpe1.q", "Cpe1.alpha"]
 
 
 def test_from_string_series_inside_parallel_branches() -> None:
-    circuit = eis.Circuit.from_string("R0-p(R1-C1,R2-Cpe2)")
+    circuit = eis.Circuit("R0-p(R1-C1,R2-Cpe2)")
     assert circuit.param_names() == [
         "R0.r",
         "R1.r",
@@ -34,16 +34,16 @@ def test_from_string_series_inside_parallel_branches() -> None:
 
 def test_from_string_rejects_unknown_code() -> None:
     with pytest.raises(ValueError):
-        eis.Circuit.from_string("Q0")
+        eis.Circuit("Q0")
 
 
 def test_from_string_rejects_duplicate_labels() -> None:
     with pytest.raises(ValueError):
-        eis.Circuit.from_string("R0-R0")
+        eis.Circuit("R0-R0")
 
 
 def test_with_values_sets_params_positionally() -> None:
-    circuit = eis.Circuit.from_string("R0-p(R1,Cpe1)").with_values(
+    circuit = eis.Circuit("R0-p(R1,Cpe1)").with_values(
         [100.0, 200.0, 3e-4, 0.8]
     )
     assert circuit.param_names() == ["R0.r", "R1.r", "Cpe1.q", "Cpe1.alpha"]
@@ -61,13 +61,13 @@ def test_with_values_sets_params_positionally() -> None:
 
 
 def test_with_values_rejects_wrong_length() -> None:
-    circuit = eis.Circuit.from_string("R0-C1")
+    circuit = eis.Circuit("R0-C1")
     with pytest.raises(ValueError):
         circuit.with_values([1.0])
 
 
 def test_with_named_values_sets_params_by_label() -> None:
-    circuit = eis.Circuit.from_string("R0-p(R1,Cpe1)").with_named_values(
+    circuit = eis.Circuit("R0-p(R1,Cpe1)").with_named_values(
         {"R0.r": 100.0, "R1.r": 200.0, "Cpe1.q": 3e-4, "Cpe1.alpha": 0.8}
     )
     z = np.asarray(circuit.impedance(FREQS), dtype=np.complex128)
@@ -83,15 +83,45 @@ def test_with_named_values_sets_params_by_label() -> None:
 
 
 def test_with_named_values_rejects_missing_name() -> None:
-    circuit = eis.Circuit.from_string("R0-C1")
-    with pytest.raises(ValueError):
+    circuit = eis.Circuit("R0-C1")
+    with pytest.raises(ValueError, match="missing parameter"):
         circuit.with_named_values({"R0.r": 100.0})
 
 
 def test_with_named_values_rejects_unknown_name() -> None:
-    circuit = eis.Circuit.from_string("R0-C1")
-    with pytest.raises(ValueError):
+    circuit = eis.Circuit("R0-C1")
+    with pytest.raises(ValueError) as excinfo:
         circuit.with_named_values({"R0.r": 100.0, "C1.c": 1e-6, "bogus": 1.0})
+    message = str(excinfo.value)
+    assert "bogus" in message
+    # All parameter names listed in error message
+    for name in circuit.param_names():
+        assert name in message
+
+
+def test_with_named_values_suggests_close_typo() -> None:
+    circuit = eis.Circuit("R0-p(R1,Cpe1)")
+    with pytest.raises(ValueError, match='did you mean "Cpe1.alpha"'):
+        circuit.with_named_values(
+            {"R0.r": 1.0, "R1.r": 2.0, "Cpe1.q": 3e-4, "Cpe1.alph": 0.8}
+        )
+
+
+def test_param_units_matches_param_names_length() -> None:
+    circuit = eis.Circuit("R0-p(R1,Cpe1)")
+    assert circuit.param_units() == ["ohm", "ohm", "ohm^-1*s^alpha", "-"]
+
+
+def test_repr_lists_every_param_name_value_unit_and_bound() -> None:
+    circuit = eis.Circuit("R0-Cpe1").with_named_values(
+        {"R0.r": 100.0, "Cpe1.q": 3e-4, "Cpe1.alpha": 0.8}
+    )
+    text = repr(circuit)
+    for name in circuit.param_names():
+        assert name in text
+    assert "ohm" in text
+    assert "ohm^-1*s^alpha" in text
+    assert "100" in text
 
 
 def test_from_string_circuit_can_be_fit() -> None:
@@ -104,7 +134,7 @@ def test_from_string_circuit_can_be_fit() -> None:
     )
     z = np.asarray(truth.impedance(FREQS), dtype=np.complex128)
 
-    guess = eis.Circuit.from_string("R0-p(R1,W1)-C1").with_values(
+    guess = eis.Circuit("R0-p(R1,W1)-C1").with_values(
         [25.0, 150.0, 65.0, 1.3e-5]
     )
     result = guess.fit(FREQS, list(z))

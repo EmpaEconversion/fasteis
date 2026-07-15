@@ -30,7 +30,7 @@ def test_fit_matches_recorded_cost(label: str, expected_cost: float) -> None:
     case = _CASES_BY_LABEL[label]
     freqs, z = case.load_data()
 
-    circuit = eis.Circuit.from_string(case.circuit_string).with_named_values(
+    circuit = eis.Circuit(case.circuit_string).with_named_values(
         case.eis_initial_guess
     )
     result = circuit.fit(list(freqs), list(z))
