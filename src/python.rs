@@ -126,7 +126,7 @@ impl Circuit {
     /// with `with_values()` or `with_named_values()`.
     #[new]
     fn new(s: &str) -> PyResult<Circuit> {
-        let node = circuit::parse(s).map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let node = circuit::parse(s).map_err(|e| PyValueError::new_err(circuit::describe_parse_error(s, &e)))?;
         Ok(Circuit { node })
     }
 

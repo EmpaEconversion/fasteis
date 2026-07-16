@@ -241,18 +241,59 @@ impl std::fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// Parse a circuit topology string, e.g. `"R0-p(R1,Cpe1)"` or `"R0-p(R1-C1,R2-Cpe2)"`.
+impl ParseError {
+    /// Character offset into the original input this error points at, if any
+    /// (`DuplicateLabel` has no single offset -- the label may appear twice at
+    /// unrelated positions).
+    fn position(&self) -> Option<usize> {
+        match self {
+            ParseError::UnexpectedChar(pos)
+            | ParseError::UnknownElementCode(_, pos)
+            | ParseError::TrailingInput(pos) => Some(*pos),
+            ParseError::UnexpectedEnd => None,
+            ParseError::DuplicateLabel(_) => None,
+        }
+    }
+}
+
+/// Full help text for a failed `parse()` call: the specific problem, a caret
+/// pointing at the offending position in `input` (when there is one), a syntax
+/// refresher, and a table of every element code `parse()` accepts.
+pub fn describe_parse_error(input: &str, err: &ParseError) -> String {
+    let mut lines = vec![err.to_string()];
+
+    if let Some(pos) = err.position() {
+        lines.push(String::new());
+        lines.push(format!("  {input}"));
+        lines.push(format!("  {}^", " ".repeat(pos)));
+    }
+
+    lines.push(String::new());
+    lines.push("syntax:".to_string());
+    lines.push("  - every element needs a numeric label, e.g. \"R0\" and \"C1\", not \"R\" and \"C\"".to_string());
+    lines.push("  - connect elements in series with '-', e.g. \"R0-C1\"".to_string());
+    lines.push("  - connect elements in parallel with '(...)' or 'p(...)', e.g. \"R0-(R1,C1)\" or \"R0-p(R1,C1)\"".to_string());
+    lines.push(String::new());
+    lines.push("available elements (code, parameters, [units]):".to_string());
+    lines.push(Element::describe_codes());
+
+    lines.join("\n")
+}
+
+/// Parse a circuit topology string, e.g. `"R0-p(R1,Cpe1)"`, `"R0-(R1,Cpe1)"`, or
+/// `"R0-p(R1-C1,R2-Cpe2)"`.
 ///
 /// Grammar:
 /// ```text
 /// series   := term ('-' term)*
 /// term     := parallel | element
-/// parallel := 'p' '(' series (',' series)* ')'
+/// parallel := 'p'? '(' series (',' series)* ')'
 /// element  := code digits
 /// ```
+/// A parallel group can be written `(...)` or `p(...)`
 /// `code` is one of the known element codes (matched against the longest run of
 /// letters, so e.g. "Tlmq5" and "T5" are unambiguous). The string carries no
-/// parameter values -- every parsed element gets a sensible placeholder default
+/// parameter values -- every parsed element gets a placeholder default
 /// (see `Element::default_for_code`); real values are supplied afterward via
 /// `with_param_values` or a name-keyed lookup against `param_names()`.
 pub fn parse(input: &str) -> Result<Series, ParseError> {
@@ -287,19 +328,28 @@ fn parse_series(chars: &[char], pos: &mut usize) -> Result<Series, ParseError> {
 fn parse_term(chars: &[char], pos: &mut usize) -> Result<Node, ParseError> {
     if *pos < chars.len() && chars[*pos] == 'p' && chars.get(*pos + 1) == Some(&'(') {
         *pos += 2;
-        let mut branches = vec![parse_series(chars, pos)?];
-        while *pos < chars.len() && chars[*pos] == ',' {
-            *pos += 1;
-            branches.push(parse_series(chars, pos)?);
-        }
-        if *pos >= chars.len() || chars[*pos] != ')' {
-            return Err(ParseError::UnexpectedEnd);
-        }
-        *pos += 1;
-        Ok(Node::Parallel(branches))
-    } else {
-        parse_element(chars, pos)
+        return parse_parallel_body(chars, pos);
     }
+    if *pos < chars.len() && chars[*pos] == '(' {
+        *pos += 1;
+        return parse_parallel_body(chars, pos);
+    }
+    parse_element(chars, pos)
+}
+
+/// The `series (',' series)* ')'` tail shared by both `p(...)` and bare `(...)`
+/// parallel syntax -- called just after the opening paren has been consumed.
+fn parse_parallel_body(chars: &[char], pos: &mut usize) -> Result<Node, ParseError> {
+    let mut branches = vec![parse_series(chars, pos)?];
+    while *pos < chars.len() && chars[*pos] == ',' {
+        *pos += 1;
+        branches.push(parse_series(chars, pos)?);
+    }
+    if *pos >= chars.len() || chars[*pos] != ')' {
+        return Err(ParseError::UnexpectedEnd);
+    }
+    *pos += 1;
+    Ok(Node::Parallel(branches))
 }
 
 fn parse_element(chars: &[char], pos: &mut usize) -> Result<Node, ParseError> {
@@ -423,6 +473,22 @@ mod tests {
     }
 
     #[test]
+    fn bare_parens_are_equivalent_to_p_parens() {
+        let bare = parse("R0-(R1,Cpe1)").unwrap();
+        let with_p = parse("R0-p(R1,Cpe1)").unwrap();
+        assert_eq!(param_names(&bare), param_names(&with_p));
+        for &omega in &[0.1, 1.0, 100.0] {
+            assert_close(impedance(&bare, omega), impedance(&with_p, omega), 1e-12);
+        }
+    }
+
+    #[test]
+    fn bare_parens_nest_like_p_parens() {
+        let circuit = parse("(R0,(R1,C1))").unwrap();
+        assert_eq!(param_names(&circuit), vec!["R0.r", "R1.r", "C1.c"]);
+    }
+
+    #[test]
     fn rejects_unknown_element_code() {
         assert!(matches!(parse("Q0"), Err(ParseError::UnknownElementCode(code, _)) if code == "Q"));
     }
@@ -490,6 +556,29 @@ mod tests {
         assert!(text.contains("did you mean \"Cpe1.alpha\"?"));
         for name in &names {
             assert!(text.contains(name.as_str()), "missing {name} in {text}");
+        }
+    }
+
+    #[test]
+    fn describe_parse_error_points_at_offending_position() {
+        let err = parse("R").unwrap_err();
+        let text = describe_parse_error("R", &err);
+        // "R" is at column 2 (after the "  " prefix), so the offending position
+        // (1, right after the code with no digits) lines up one column further.
+        assert!(text.contains("  R\n"), "missing input line in:\n{text}");
+        assert!(text.contains("   ^"), "caret not aligned under position 1 in:\n{text}");
+    }
+
+    #[test]
+    fn describe_parse_error_lists_syntax_and_element_table() {
+        let err = parse("Q0").unwrap_err();
+        let text = describe_parse_error("Q0", &err);
+        assert!(text.contains("series"));
+        assert!(text.contains("parallel"));
+        assert!(text.contains("CPE"));
+        assert!(text.contains("Zarc"));
+        for &code in Element::CODES {
+            assert!(text.contains(code), "{code} missing from parse-error help:\n{text}");
         }
     }
 

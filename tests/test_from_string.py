@@ -37,6 +37,31 @@ def test_from_string_rejects_unknown_code() -> None:
         eis.Circuit("Q0")
 
 
+def test_bare_parens_parallel_matches_p_parens() -> None:
+    bare = eis.Circuit("R0-(R1,Cpe1)").with_named_values(
+        {"R0.r": 1.0, "R1.r": 2.0, "Cpe1.q": 3e-4, "Cpe1.alpha": 0.8}
+    )
+    with_p = eis.Circuit("R0-p(R1,Cpe1)").with_named_values(
+        {"R0.r": 1.0, "R1.r": 2.0, "Cpe1.q": 3e-4, "Cpe1.alpha": 0.8}
+    )
+    np.testing.assert_allclose(
+        np.asarray(bare.impedance(FREQS), dtype=np.complex128),
+        np.asarray(with_p.impedance(FREQS), dtype=np.complex128),
+    )
+
+
+def test_parse_error_lists_syntax_and_available_elements() -> None:
+    with pytest.raises(ValueError) as excinfo:
+        eis.Circuit("R")
+    message = str(excinfo.value)
+    assert "series" in message
+    assert "parallel" in message
+    # Every element code is listed so the user can discover valid syntax
+    # without consulting external docs.
+    for code in ["R", "C", "L", "La", "CPE", "W", "Wo", "Ws", "G", "Gs", "K", "Zarc", "TLMQ", "T"]:
+        assert code in message
+
+
 def test_from_string_rejects_duplicate_labels() -> None:
     with pytest.raises(ValueError):
         eis.Circuit("R0-R0")

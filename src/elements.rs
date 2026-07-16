@@ -188,6 +188,35 @@ impl Element {
             .collect()
     }
 
+    /// All element codes accepted by `circuit::parse()`, in the canonical spelling
+    /// used in help/error messages -- matches python.rs's static-method names
+    /// (e.g. "CPE" not "Cpe", "TLMQ" not "Tlmq"), since that's the spelling users
+    /// see everywhere else. `default_for_code` also accepts the lowercase-tail
+    /// variants ("Cpe", "Tlmq") for backward compatibility with older strings.
+    pub const CODES: &'static [&'static str] =
+        &["R", "C", "L", "La", "CPE", "W", "Wo", "Ws", "G", "Gs", "K", "Zarc", "TLMQ", "T"];
+
+    /// One line per known element code: the code, then each parameter name and
+    /// unit. Used to help users discover valid circuit-string syntax after a
+    /// parse error.
+    pub fn describe_codes() -> String {
+        let width = Element::CODES.iter().map(|c| c.len()).max().unwrap_or(0);
+        Element::CODES
+            .iter()
+            .map(|&code| {
+                let element = Element::default_for_code(code).expect("Element::CODES entries must all be valid");
+                let params: Vec<String> = element
+                    .param_names()
+                    .iter()
+                    .zip(element.param_units())
+                    .map(|(name, unit)| format!("{name} [{unit}]"))
+                    .collect();
+                format!("  {code:width$}  {}", params.join(", "))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     /// Build a placeholder-valued element for the given code, used when parsing a
     /// circuit topology string (which carries no parameter values). Magnitude-like
     /// fields default to `1.0`; fractional-exponent fields ("alpha"/"gamma") default
@@ -379,6 +408,15 @@ mod tests {
         assert_eq!(Element::R { r: 1.0 }.param_units(), &["ohm"]);
         assert_eq!(Element::Cpe { q: 1.0, alpha: 0.5 }.param_units(), &["ohm^-1*s^alpha", "-"]);
         assert_eq!(Element::Zarc { r: 1.0, tau_k: 1.0, gamma: 0.5 }.param_units(), &["ohm", "s", "-"]);
+    }
+
+    #[test]
+    fn every_code_is_a_valid_default_for_code_and_appears_in_describe_codes() {
+        let described = Element::describe_codes();
+        for &code in Element::CODES {
+            assert!(Element::default_for_code(code).is_some(), "{code} has no default_for_code entry");
+            assert!(described.contains(code), "{code} missing from describe_codes() output:\n{described}");
+        }
     }
 
     #[test]
