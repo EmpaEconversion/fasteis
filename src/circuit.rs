@@ -32,6 +32,33 @@ fn node_impedance(node: &Node, omega: f64) -> Complex64 {
     }
 }
 
+/// Impedance of `series` evaluated with a parameter vector `params`
+/// (`param_names()`/`param_values()` order), without rebuilding a the whole
+/// `Series`/`Node` tree. Speeds up fit loops.
+pub fn impedance_with_params(series: &[Node], params: &[f64], omega: f64) -> Complex64 {
+    let mut iter = params.iter().copied();
+    let z = series_impedance_with_params(series, &mut iter, omega);
+    debug_assert!(iter.next().is_none(), "impedance_with_params: too many values supplied");
+    z
+}
+
+fn series_impedance_with_params(series: &[Node], iter: &mut impl Iterator<Item = f64>, omega: f64) -> Complex64 {
+    series.iter().map(|node| node_impedance_with_params(node, iter, omega)).sum()
+}
+
+fn node_impedance_with_params(node: &Node, iter: &mut impl Iterator<Item = f64>, omega: f64) -> Complex64 {
+    match node {
+        Node::Element(e, _) => e.impedance_from_iter(iter, omega),
+        Node::Parallel(branches) => {
+            let sum_inv: Complex64 = branches
+                .iter()
+                .map(|branch| Complex64::new(1.0, 0.0) / series_impedance_with_params(branch, iter, omega))
+                .sum();
+            Complex64::new(1.0, 0.0) / sum_inv
+        }
+    }
+}
+
 /// Leaves in depth-first, pre-order traversal -- the same order `impedance()` walks the tree.
 fn leaves(series: &[Node]) -> Vec<(&Element, &Option<String>)> {
     let mut out = Vec::new();
@@ -435,6 +462,24 @@ mod tests {
         }
         let scaled = with_param_values(&circuit, &doubled);
         assert_eq!(param_values(&scaled), doubled);
+    }
+
+    #[test]
+    fn impedance_with_params_matches_with_param_values_then_impedance() {
+        let circuit = vec![r(1.0), Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]), cpe(4.0, 0.9)];
+        let values = param_values(&circuit);
+        let mut perturbed = values.clone();
+        for v in perturbed.iter_mut() {
+            *v *= 1.7;
+        }
+        let rebuilt = with_param_values(&circuit, &perturbed);
+        for &omega in &[0.1, 1.0, 100.0] {
+            assert_close(
+                impedance_with_params(&circuit, &perturbed, omega),
+                impedance(&rebuilt, omega),
+                1e-12,
+            );
+        }
     }
 
     #[test]

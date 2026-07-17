@@ -90,10 +90,9 @@ pub(crate) fn residuals(
     z_measured: &[Complex64],
     weights: &[f64],
 ) -> Vec<f64> {
-    let node = circuit::with_param_values(topology, p);
     let mut r = vec![0.0; 2 * omegas.len()];
     for (i, &omega) in omegas.iter().enumerate() {
-        let z = circuit::impedance(&node, omega);
+        let z = circuit::impedance_with_params(topology, p, omega);
         let w = weights[i];
         r[2 * i] = (z.re - z_measured[i].re) / w;
         r[2 * i + 1] = (z.im - z_measured[i].im) / w;
