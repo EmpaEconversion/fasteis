@@ -8,7 +8,7 @@ import numpy as np
 from impedance.models.circuits import elements as ipy
 from numpy.typing import NDArray
 
-import eis
+import fasteis
 
 FreqArray = NDArray[np.float64]
 ElementParams = tuple[float, ...]
@@ -110,7 +110,7 @@ class CompositionCase:
     def __init__(
         self,
         label: str,
-        eis_circuit: eis.Circuit,
+        eis_circuit: fasteis.Circuit,
         ipy_result: IpyResultFn,
         freqs: FreqArray,
     ) -> None:
@@ -123,10 +123,10 @@ class CompositionCase:
 
 def _make_series_r_parallel_r_cpe() -> CompositionCase:
     r0, r1, q, alpha = 50.0, 200.0, 1e-5, 0.85
-    circuit = eis.Circuit.series(
+    circuit = fasteis.Circuit.series(
         [
-            eis.Circuit.R(r0),
-            eis.Circuit.parallel([eis.Circuit.R(r1), eis.Circuit.CPE(q, alpha)]),
+            fasteis.Circuit.R(r0),
+            fasteis.Circuit.parallel([fasteis.Circuit.R(r1), fasteis.Circuit.CPE(q, alpha)]),
         ]
     )
 
@@ -146,9 +146,9 @@ def _make_series_r_parallel_r_cpe() -> CompositionCase:
 
 def _make_nested_parallel_of_series() -> CompositionCase:
     ra, ca, rb, aw = 10.0, 1e-5, 20.0, 30.0
-    branch_a = eis.Circuit.series([eis.Circuit.R(ra), eis.Circuit.C(ca)])
-    branch_b = eis.Circuit.series([eis.Circuit.R(rb), eis.Circuit.W(aw)])
-    circuit = eis.Circuit.parallel([branch_a, branch_b])
+    branch_a = fasteis.Circuit.series([fasteis.Circuit.R(ra), fasteis.Circuit.C(ca)])
+    branch_b = fasteis.Circuit.series([fasteis.Circuit.R(rb), fasteis.Circuit.W(aw)])
+    circuit = fasteis.Circuit.parallel([branch_a, branch_b])
 
     def ipy_result(freqs_list: list[float]) -> NDArray[np.complex128]:
         return np.asarray(
@@ -167,11 +167,11 @@ def _make_nested_parallel_of_series() -> CompositionCase:
 def _make_three_branch_parallel() -> CompositionCase:
     """Resistors and capacitor in parallel."""
     r0, r1, c = 10.0, 20.0, 1e-6
-    circuit = eis.Circuit.parallel(
+    circuit = fasteis.Circuit.parallel(
         [
-            eis.Circuit.R(r0),
-            eis.Circuit.R(r1),
-            eis.Circuit.C(c),
+            fasteis.Circuit.R(r0),
+            fasteis.Circuit.R(r1),
+            fasteis.Circuit.C(c),
         ]
     )
 
@@ -193,13 +193,13 @@ def _make_three_branch_parallel() -> CompositionCase:
 def _make_randles() -> CompositionCase:
     """Define a randles circuit."""
     rs, rct, cdl_val, aw = 20.0, 150.0, 20e-6, 60.0
-    circuit = eis.Circuit.series(
+    circuit = fasteis.Circuit.series(
         [
-            eis.Circuit.R(rs),
-            eis.Circuit.parallel(
+            fasteis.Circuit.R(rs),
+            fasteis.Circuit.parallel(
                 [
-                    eis.Circuit.series([eis.Circuit.R(rct), eis.Circuit.W(aw)]),
-                    eis.Circuit.C(cdl_val),
+                    fasteis.Circuit.series([fasteis.Circuit.R(rct), fasteis.Circuit.W(aw)]),
+                    fasteis.Circuit.C(cdl_val),
                 ]
             ),
         ]
@@ -227,13 +227,13 @@ def _make_randles() -> CompositionCase:
 def _make_randles_cpe() -> CompositionCase:
     """Randles circuit with CPE instead of double layer capacitor."""
     rs, rct, q, alpha, aw = 15.0, 300.0, 5e-5, 0.9, 45.0
-    circuit = eis.Circuit.series(
+    circuit = fasteis.Circuit.series(
         [
-            eis.Circuit.R(rs),
-            eis.Circuit.parallel(
+            fasteis.Circuit.R(rs),
+            fasteis.Circuit.parallel(
                 [
-                    eis.Circuit.series([eis.Circuit.R(rct), eis.Circuit.W(aw)]),
-                    eis.Circuit.CPE(q, alpha),
+                    fasteis.Circuit.series([fasteis.Circuit.R(rct), fasteis.Circuit.W(aw)]),
+                    fasteis.Circuit.CPE(q, alpha),
                 ]
             ),
         ]

@@ -5,12 +5,12 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import eis
+import fasteis
 
 FREQS: list[float] = list(np.logspace(-1, 6, 60))
 
 
-def _synthetic(circuit: eis.Circuit, freqs: list[float] = FREQS) -> np.ndarray:
+def _synthetic(circuit: fasteis.Circuit, freqs: list[float] = FREQS) -> np.ndarray:
     return np.asarray(circuit.impedance(freqs), dtype=np.complex128)
 
 
@@ -25,8 +25,8 @@ def _synthetic(circuit: eis.Circuit, freqs: list[float] = FREQS) -> np.ndarray:
 def test_fit_recovers_single_element_params_by_name(
     name: str, truth_params: tuple[float, ...], guess_params: tuple[float, ...]
 ) -> None:
-    truth = getattr(eis.Circuit, name)(*truth_params)
-    guess = getattr(eis.Circuit, name)(*guess_params)
+    truth = getattr(fasteis.Circuit, name)(*truth_params)
+    guess = getattr(fasteis.Circuit, name)(*guess_params)
     z = _synthetic(truth)
 
     result = guess.fit(FREQS, list(z))
@@ -48,27 +48,27 @@ def _field_names(name: str) -> list[str]:
     }[name]
 
 
-def _make_randles(rs: float, rct: float, cdl: float, aw: float) -> eis.Circuit:
-    return eis.Circuit.series(
+def _make_randles(rs: float, rct: float, cdl: float, aw: float) -> fasteis.Circuit:
+    return fasteis.Circuit.series(
         [
-            eis.Circuit.R(rs),
-            eis.Circuit.parallel(
+            fasteis.Circuit.R(rs),
+            fasteis.Circuit.parallel(
                 [
-                    eis.Circuit.series([eis.Circuit.R(rct), eis.Circuit.W(aw)]),
-                    eis.Circuit.C(cdl),
+                    fasteis.Circuit.series([fasteis.Circuit.R(rct), fasteis.Circuit.W(aw)]),
+                    fasteis.Circuit.C(cdl),
                 ]
             ),
         ]
     )
 
 
-def _make_three_branch_parallel(r: float, c: float, l: float) -> eis.Circuit:
+def _make_three_branch_parallel(r: float, c: float, l: float) -> fasteis.Circuit:
     # R, C, L in parallel
-    return eis.Circuit.parallel(
+    return fasteis.Circuit.parallel(
         [
-            eis.Circuit.R(r),
-            eis.Circuit.C(c),
-            eis.Circuit.L(l),
+            fasteis.Circuit.R(r),
+            fasteis.Circuit.C(c),
+            fasteis.Circuit.L(l),
         ]
     )
 
@@ -88,7 +88,7 @@ def _make_three_branch_parallel(r: float, c: float, l: float) -> eis.Circuit:
     ids=["randles_cell", "three_branch_parallel"],
 )
 def test_fit_recovers_impedance_for_composed_topologies(
-    truth: eis.Circuit, guess: eis.Circuit
+    truth: fasteis.Circuit, guess: fasteis.Circuit
 ) -> None:
     """Fit synthetic circuits."""
     z = _synthetic(truth)
@@ -105,8 +105,8 @@ def test_fit_weight_modulus_vs_unit_differ() -> None:
 
     Weighting by unit vs modulus results in different fits.
     """
-    truth = eis.Circuit.series([eis.Circuit.R(1.0), eis.Circuit.CPE(1e-2, 0.7)])
-    guess = eis.Circuit.series([eis.Circuit.R(3.0), eis.Circuit.CPE(5e-3, 0.5)])
+    truth = fasteis.Circuit.series([fasteis.Circuit.R(1.0), fasteis.Circuit.CPE(1e-2, 0.7)])
+    guess = fasteis.Circuit.series([fasteis.Circuit.R(3.0), fasteis.Circuit.CPE(5e-3, 0.5)])
     freqs = list(np.logspace(0, 6, 40))
     z = _synthetic(truth, freqs)
     rng = np.random.default_rng(0)
@@ -136,14 +136,14 @@ def test_fit_reports_success_and_finite_stderr() -> None:
 
 def test_fit_rejects_mismatched_lengths() -> None:
     """Error on mismatched f and Z lengths."""
-    circuit = eis.Circuit.R(100.0)
+    circuit = fasteis.Circuit.R(100.0)
     with pytest.raises(ValueError):
         circuit.fit(FREQS, [complex(1.0, 0.0)])
 
 
 def test_fit_rejects_unknown_weight() -> None:
     """Error on bad inputs."""
-    circuit = eis.Circuit.R(100.0)
+    circuit = fasteis.Circuit.R(100.0)
     z = _synthetic(circuit)
     with pytest.raises(ValueError):
         circuit.fit(FREQS, list(z), weight="bogus")

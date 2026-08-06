@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import pytest
 
-import eis
+import fasteis
 from tests.fit_benchmark_cases import FIT_BENCHMARK_CASES
 
 _CASES_BY_LABEL = {c.label: c for c in FIT_BENCHMARK_CASES}
@@ -30,7 +30,7 @@ def test_fit_matches_recorded_cost(label: str, expected_cost: float) -> None:
     case = _CASES_BY_LABEL[label]
     freqs, z = case.load_data()
 
-    circuit = eis.Circuit(case.circuit_string).with_named_values(
+    circuit = fasteis.Circuit(case.circuit_string).with_named_values(
         case.eis_initial_guess
     )
     result = circuit.fit(list(freqs), list(z))

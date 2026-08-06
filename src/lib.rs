@@ -8,7 +8,7 @@ mod python;
 use python::{Circuit, FitResult};
 
 #[pymodule]
-fn eis(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn fasteis(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Circuit>()?;
     m.add_class::<FitResult>()?;
     Ok(())

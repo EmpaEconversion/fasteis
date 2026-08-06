@@ -24,7 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from impedance.models.circuits import CustomCircuit
 
-import eis
+import fasteis
 from tests.fit_benchmark_cases import FIT_BENCHMARK_CASES, FitBenchmarkCase
 
 if TYPE_CHECKING:
@@ -77,7 +77,7 @@ def _max_rel_err(z_model: np.ndarray, z_measured: np.ndarray) -> float:
 
 
 def _rust_trf_fit(
-    circuit: eis.Circuit, freqs_list: list[float], z_list: list[complex]
+    circuit: fasteis.Circuit, freqs_list: list[float], z_list: list[complex]
 ) -> np.ndarray:
     """Test with scipy.optimize.least_squares(method="trf") (same as impedance.py)."""
     bounds = circuit.param_bounds()
@@ -159,7 +159,7 @@ def bench_case(case: FitBenchmarkCase, *, include_global: bool) -> None:
                 _max_rel_err(z_ipy_bh, z),
             )
 
-    circuit = eis.Circuit.from_string(case.circuit_string).with_named_values(
+    circuit = fasteis.Circuit.from_string(case.circuit_string).with_named_values(
         case.eis_initial_guess
     )
     z_list = list(z)
@@ -186,7 +186,7 @@ def bench_case(case: FitBenchmarkCase, *, include_global: bool) -> None:
 
         def eis_fit(
             method: str = method, kwargs: dict[str, object] = kwargs
-        ) -> eis.FitResult:
+        ) -> fasteis.FitResult:
             return circuit.fit(freqs_list, list(z), method=method, **kwargs)
 
         fit_ms = _median_ms(eis_fit, number=repeats)

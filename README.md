@@ -1,4 +1,4 @@
-# EIS
+# fasteis
 
 A library for simulating EIS with equivalent circuits.
 

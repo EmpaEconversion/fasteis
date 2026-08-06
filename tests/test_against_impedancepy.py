@@ -9,7 +9,7 @@ import numpy as np
 import pytest
 from impedance.models.circuits import elements as ipy
 
-import eis
+import fasteis
 from tests.circuit_cases import (
     COMPOSITION_CASES,
     ELEMENT_CASES,
@@ -41,7 +41,7 @@ def test_element_matches_impedancepy(
     name: str, params: ElementParams, freqs: FreqArray
 ) -> None:
     """Test individual elements."""
-    circuit = getattr(eis.Circuit, name)(*params)
+    circuit = getattr(fasteis.Circuit, name)(*params)
     got = np.array(circuit.impedance(list(freqs)))
     want = ipy.circuit_elements[name](list(params), list(freqs))
     np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-12)

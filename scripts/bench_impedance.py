@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from impedance.models.circuits import elements as ipy
 
-import eis
+import fasteis
 from tests.circuit_cases import COMPOSITION_CASES, ELEMENT_CASES, FreqArray
 
 if TYPE_CHECKING:
@@ -52,7 +52,7 @@ def bench_elements() -> list[BenchRow]:
         params, freqs = variations[0]  # magnitude doesn't affect timing
         freqs_list = _dense_freqs(freqs)
 
-        circuit = getattr(eis.Circuit, name)(*params)
+        circuit = getattr(fasteis.Circuit, name)(*params)
         eis_ms = _ms_per_call(
             lambda circuit=circuit, freqs_list=freqs_list: circuit.impedance(freqs_list)
         )
