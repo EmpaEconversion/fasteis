@@ -245,7 +245,7 @@ impl Circuit {
 
     #[pyo3(signature = (
         frequencies, impedances, weight="modulus", method="levenberg_marquardt",
-        max_iterations=200, ftol=1e-10, xtol=1e-10,
+        max_iterations=200, ftol=1e-8, xtol=1e-8,
         num_particles=200, generations=1000,
         nelder_mead_iterations=2000,
         de_evaluations=20_000,
@@ -280,7 +280,7 @@ impl Circuit {
         let outcome = py
             .allow_threads(|| match method {
                 "levenberg_marquardt" => {
-                    let options = FitOptions { max_iterations, ftol, xtol, gtol: 1e-10 };
+                    let options = FitOptions { max_iterations, ftol, xtol, gtol: 1e-8 };
                     fit::levenberg_marquardt_fit(&node, &frequencies, &impedances, weighting, &options)
                 }
                 "particle_swarm" => fit::particle_swarm_fit(

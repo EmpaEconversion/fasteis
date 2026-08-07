@@ -30,7 +30,7 @@ pub struct FitOptions {
 
 impl Default for FitOptions {
     fn default() -> Self {
-        FitOptions { max_iterations: 200, ftol: 1e-10, xtol: 1e-10, gtol: 1e-10 }
+        FitOptions { max_iterations: 200, ftol: 1e-8, xtol: 1e-8, gtol: 1e-8 }
     }
 }
 
