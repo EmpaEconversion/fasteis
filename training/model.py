@@ -11,7 +11,7 @@ from dataclasses import asdict, dataclass
 import torch
 from torch import Tensor, nn
 
-from training import circuits, features
+from training import features
 
 # tanh so src/nn.rs can reproduce it
 GELU_APPROXIMATE = "tanh"
@@ -58,12 +58,13 @@ class Block(nn.Module):
         return self.act(x + h)
 
 
-class RandlesNet(nn.Module):
-    """Predicts standardised normalised parameters, plus a log-variance per parameter."""
+class GuessNet(nn.Module):
+    """Predicts standardised normalised parameters, plus a log-variance each."""
 
-    def __init__(self, config: Config = DEFAULT) -> None:
+    def __init__(self, n_params: int, config: Config = DEFAULT) -> None:
         super().__init__()
         self.config = config
+        self.n_params = n_params
         c = config.channels
 
         self.stem = nn.Conv1d(features.N_CHANNELS, c, KERNEL, padding=KERNEL // 2)
@@ -75,11 +76,11 @@ class RandlesNet(nn.Module):
             nn.GELU(approximate=GELU_APPROXIMATE),
             nn.Linear(config.head_width, config.head_width),
             nn.GELU(approximate=GELU_APPROXIMATE),
-            nn.Linear(config.head_width, 2 * circuits.N_PARAMS),
+            nn.Linear(config.head_width, 2 * n_params),
         )
 
     def forward(self, grid: Tensor, scalars: Tensor) -> tuple[Tensor, Tensor]:
-        """Returns (mu, log_var), both (B, N_PARAMS) in standardised target space."""
+        """Returns (mu, log_var), both (B, n_params) in standardised target space."""
         h = self.stem(grid)
         for block in self.blocks:
             h = block(h)

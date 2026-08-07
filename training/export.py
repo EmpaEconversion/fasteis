@@ -18,8 +18,9 @@ def export(checkpoint: Path, out: Path, dtype: str = "f16") -> None:
     """Write weights, target statistics and scaling rules to `out`."""
     payload = torch.load(checkpoint, map_location="cpu", weights_only=False)
 
+    circuit = circuits.get(payload["circuit"])
     config = model.Config(**payload["config"])
-    net = model.RandlesNet(config)
+    net = model.GuessNet(circuit.n_params, config)
     net.load_state_dict(payload["state_dict"])
     net.eval()
 
@@ -30,22 +31,22 @@ def export(checkpoint: Path, out: Path, dtype: str = "f16") -> None:
     # unprefixed names are not weights, so serialize_weights keeps them f32
     tensors["target_mean"] = np.asarray(payload["target_mean"], dtype=np.float64)
     tensors["target_std"] = np.asarray(payload["target_std"], dtype=np.float64)
-    tensors["scaling"] = circuits.SCALING
+    tensors["scaling"] = circuit.scaling
     tensors["log_params"] = np.array(
-        [1.0 if i in circuits.LOG_PARAMS else 0.0 for i in range(circuits.N_PARAMS)]
+        [1.0 if i in circuit.log_params else 0.0 for i in range(circuit.n_params)]
     )
 
     metadata = {
-        "circuit": circuits.CIRCUIT_STRING,
-        "param_names": ",".join(circuits.PARAM_NAMES),
+        "circuit": circuit.circuit_str,
+        "param_names": ",".join(circuit.param_names),
         "estimator": str(payload.get("estimator", scales.DEFAULT)),
         "n_grid": str(features.N_GRID),
         "channels": str(config.channels),
         "kernel": str(model.KERNEL),
         "groups": str(config.groups),
         "dilations": ",".join(str(d) for d in config.dilations()),
-        "alpha_min": str(circuits.ALPHA_RANGE[0]),
-        "alpha_max": str(circuits.ALPHA_RANGE[1]),
+        "alpha_min": str(circuit.alpha_range[0]),
+        "alpha_max": str(circuit.alpha_range[1]),
     }
 
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -66,13 +67,14 @@ def export(checkpoint: Path, out: Path, dtype: str = "f16") -> None:
 def main() -> None:
     """Export a checkpoint."""
     p = argparse.ArgumentParser()
-    p.add_argument("--checkpoint", type=Path, default=Path("training/checkpoints/randles/best.pt"))
-    p.add_argument("--name", default="randles", help="registry name in src/models.rs")
+    p.add_argument("--circuit", default="randles", help="which trained circuit")
+    p.add_argument("--checkpoint", type=Path, default=None)
     p.add_argument("--models-dir", type=Path, default=Path("src/models"))
     p.add_argument("--dtype", default="f16", choices=sorted(serialize_weights.DTYPES))
     args = p.parse_args()
 
-    export(args.checkpoint, args.models_dir / f"{args.name}.eisnn", args.dtype)
+    checkpoint = args.checkpoint or Path("training/checkpoints") / args.circuit / "best.pt"
+    export(checkpoint, args.models_dir / f"{args.circuit}.eisnn", args.dtype)
 
 
 if __name__ == "__main__":

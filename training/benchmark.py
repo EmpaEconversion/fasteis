@@ -25,10 +25,10 @@ from training import circuits, evaluate, priors
 
 def make_guess_init_params(name: str):
     """Wrap the embedded model as an evaluate.InitParams."""
-    circuit = fasteis.Circuit(name)
+    built = fasteis.Circuit(name)
 
     def guess_init_params(spectrum: priors.Spectrum) -> np.ndarray:
-        return np.array(circuit.guess(list(spectrum.freqs), list(spectrum.z)))
+        return np.array(built.guess(list(spectrum.freqs), list(spectrum.z)))
 
     return guess_init_params
 
@@ -54,26 +54,32 @@ def _bucket_report(
 def main() -> None:
     """Run the benchmark."""
     p = argparse.ArgumentParser()
-    p.add_argument("--name", default="randles", help="registered model to benchmark")
+    p.add_argument("--circuit", default="randles", help="which trained circuit")
     p.add_argument("--n", type=int, default=2000)
     args = p.parse_args()
 
-    guess = make_guess_init_params(args.name)
-    spectra = evaluate.benchmark_set(args.n)
+    circuit = circuits.get(args.circuit)
+    guess = make_guess_init_params(circuit.name)
+    spectra = evaluate.benchmark_set(circuit, args.n)
 
     def table(fitter) -> list[evaluate.Summary]:
         """Fit every source with one fitter, scored against that fitter's own floor."""
         sources = [
-            ("floor (truth)", evaluate.truth_init_params),
-            ("library defaults", evaluate.default_init_params),
-            (f"truth x/div {evaluate.PERTURB_FACTOR:.0f}", evaluate.make_perturbed_init_params()),
+            ("floor (truth)", evaluate.truth_init_params(circuit)),
+            ("library defaults", evaluate.default_init_params(circuit)),
+            (
+                f"truth x/div {evaluate.PERTURB_FACTOR:.0f}",
+                evaluate.make_perturbed_init_params(circuit),
+            ),
             ("ml guess", guess),
         ]
-        outcomes = [(name, evaluate.fit_all(spectra, fn, fitter)) for name, fn in sources]
+        outcomes = [
+            (name, evaluate.fit_all(circuit, spectra, fn, fitter)) for name, fn in sources
+        ]
         floor = outcomes[0][1]
         return [evaluate.summarise(name, o, floor) for name, o in outcomes]
 
-    print(f"{args.n} benchmark spectra, model {args.name!r}")
+    print(f"{args.n} benchmark spectra, circuit {circuit.name!r}")
     print("\nplain single-start LM\n")
     plain = table(evaluate.fit_plain_lm)
     evaluate.print_table(plain)
@@ -81,8 +87,8 @@ def main() -> None:
     print("\nCircuit.fit(), which screens candidate starts and restarts\n")
     evaluate.print_table(table(evaluate.fit_library))
 
-    floor = evaluate.fit_all(spectra, evaluate.truth_init_params)
-    model = evaluate.fit_all(spectra, guess)
+    floor = evaluate.fit_all(circuit, spectra, evaluate.truth_init_params(circuit))
+    model = evaluate.fit_all(circuit, spectra, guess)
 
     # measured directly rather than inferred by subtraction
     timed = spectra[:200]
@@ -124,7 +130,7 @@ def main() -> None:
     starts = np.array([guess(s) for s in spectra])
     print("\ninitial parameter error before fitting (relative, %)")
     print(f"{'param':<12} {'median':>9} {'p90':>9} {'p99':>9}")
-    for j, name in enumerate(circuits.PARAM_NAMES):
+    for j, name in enumerate(circuit.param_names):
         err = 100.0 * np.abs(starts[:, j] / truth[:, j] - 1.0)
         print(
             f"{name:<12} {np.median(err):>9.2f} "

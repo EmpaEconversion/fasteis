@@ -12,6 +12,7 @@ import pytest
 import fasteis
 from training import circuits, scales
 
+RANDLES = circuits.get("randles")
 TAU = 2.0 * np.pi
 
 # spans the range the priors will produce, plus alpha at both ends
@@ -29,13 +30,13 @@ def _freqs(n: int = 64, lo: float = -2.0, hi: float = 6.0) -> np.ndarray:
 
 
 def _impedance(params: tuple[float, ...], freqs: np.ndarray) -> np.ndarray:
-    circuit = fasteis.Circuit(circuits.CIRCUIT_STRING).with_values(list(params))
+    circuit = fasteis.Circuit(RANDLES.circuit_str).with_values(list(params))
     return np.asarray(circuit.impedance(list(freqs)), dtype=np.complex128)
 
 
 def test_param_names_match_the_rust_circuit() -> None:
-    circuit = fasteis.Circuit(circuits.CIRCUIT_STRING)
-    assert tuple(circuit.param_names()) == circuits.PARAM_NAMES
+    circuit = fasteis.Circuit(RANDLES.circuit_str)
+    assert tuple(circuit.param_names()) == RANDLES.param_names
 
 
 @pytest.mark.parametrize("params", PARAM_CASES)
@@ -48,16 +49,16 @@ def test_normalise_denormalise_round_trip(
     z = _impedance(params, freqs)
     k, w_c = scales.estimate(w, z, estimator)
 
-    normalised = circuits.to_normalised(np.array([params]), k, w_c)
-    recovered = circuits.to_physical(normalised, k, w_c)
+    normalised = RANDLES.to_normalised(np.array([params]), k, w_c)
+    recovered = RANDLES.to_physical(normalised, k, w_c)
 
     assert recovered[0] == pytest.approx(params, rel=1e-12)
 
 
 @pytest.mark.parametrize("params", PARAM_CASES)
 def test_target_encoding_round_trip(params: tuple[float, ...]) -> None:
-    normalised = circuits.to_normalised(np.array([params]), 3.0, 700.0)
-    recovered = circuits.from_targets(circuits.to_targets(normalised))
+    normalised = RANDLES.to_normalised(np.array([params]), 3.0, 700.0)
+    recovered = RANDLES.from_targets(RANDLES.to_targets(normalised))
 
     assert recovered[0] == pytest.approx(normalised[0], rel=1e-12)
 
@@ -73,7 +74,7 @@ def test_normalised_params_reproduce_the_normalised_spectrum(
     z = _impedance(params, freqs)
     k, w_c = scales.estimate(w, z, estimator)
 
-    normalised = circuits.to_normalised(np.array([params]), k, w_c)[0]
+    normalised = RANDLES.to_normalised(np.array([params]), k, w_c)[0]
     # fasteis takes Hz and multiplies by 2*pi internally, so feed w_hat / 2*pi
     z_hat = _impedance(tuple(normalised), (w / w_c) / TAU)
 
@@ -85,8 +86,8 @@ def test_normalised_params_reproduce_the_normalised_spectrum(
 def test_scales_from_params_matches_the_cpe_relaxation(
     params: tuple[float, ...],
 ) -> None:
-    k, w_c = circuits.scales_from_params(np.array([params]))
+    k, w_c = RANDLES.scales_from_params(np.array([params]))
 
-    assert k[0] == pytest.approx(params[circuits.R1])
-    tau = (params[circuits.R1] * params[circuits.Q]) ** (1.0 / params[circuits.ALPHA])
+    assert k[0] == pytest.approx(params[3])
+    tau = (params[3] * params[1]) ** (1.0 / params[2])
     assert w_c[0] == pytest.approx(1.0 / tau)

@@ -41,13 +41,14 @@ N_NOISE = 8  # noise draws per cell
 
 
 def _targets(
+    circuit: circuits.TrainingCircuit,
     freqs: NDArray[np.float64],
     z: NDArray[np.complex128],
     params: NDArray[np.float64],
     estimator: str,
 ) -> NDArray[np.float64]:
     k, w_c = scales.estimate(TAU * freqs, z, estimator)
-    return circuits.to_targets(circuits.to_normalised(params[None], k, w_c))[0]
+    return circuit.to_targets(circuit.to_normalised(params[None], k, w_c))[0]
 
 
 def _sweeps_around(
@@ -64,28 +65,29 @@ def _sweeps_around(
 
 
 def run(
+    circuit: circuits.TrainingCircuit,
     seed: int = 0,
 ) -> tuple[NDArray[np.float64], dict[str, dict[str, NDArray[np.float64]]]]:
     """Collect all three metrics for every estimator."""
     rng = np.random.default_rng(seed)
-    circuit = fasteis.Circuit(circuits.CIRCUIT_STRING)
+    built = fasteis.Circuit(circuit.circuit_str)
     names = list(scales.ESTIMATORS)
 
-    raw = np.empty((N_CELLS, circuits.N_PARAMS))
-    cells = {n: np.empty((N_CELLS, circuits.N_PARAMS)) for n in names}
-    sweep = {n: np.empty((N_CELLS, circuits.N_PARAMS)) for n in names}
-    noise = {n: np.empty((N_CELLS, circuits.N_PARAMS)) for n in names}
+    raw = np.empty((N_CELLS, circuit.n_params))
+    cells = {n: np.empty((N_CELLS, circuit.n_params)) for n in names}
+    sweep = {n: np.empty((N_CELLS, circuit.n_params)) for n in names}
+    noise = {n: np.empty((N_CELLS, circuit.n_params)) for n in names}
 
     for i in range(N_CELLS):
-        spectrum = priors.sample(rng, circuit=circuit)
+        spectrum = priors.sample(rng, circuit, built=built)
         params = spectrum.params
-        raw[i] = circuits.to_targets(params[None])[0]
+        raw[i] = circuit.to_targets(params[None])[0]
 
-        tau = (params[circuits.R1] * params[circuits.Q]) ** (1.0 / params[circuits.ALPHA])
-        variants = _sweeps_around(rng, 1.0 / tau, N_SWEEPS)
+        _, w_arc = circuit.scales_from_params(params[None])
+        variants = _sweeps_around(rng, float(w_arc[0]), N_SWEEPS)
         clean = [
             np.asarray(
-                circuit.with_values(list(params)).impedance(list(f)),
+                built.with_values(list(params)).impedance(list(f)),
                 dtype=np.complex128,
             )
             for f in variants
@@ -97,12 +99,12 @@ def run(
         ]
 
         for name in names:
-            cells[name][i] = _targets(spectrum.freqs, spectrum.z, params, name)
+            cells[name][i] = _targets(circuit, spectrum.freqs, spectrum.z, params, name)
             sweep[name][i] = np.std(
-                [_targets(f, z, params, name) for f, z in zip(variants, clean)], axis=0
+                [_targets(circuit, f, z, params, name) for f, z in zip(variants, clean)], axis=0
             )
             noise[name][i] = np.std(
-                [_targets(base_f, z, params, name) for z in draws], axis=0
+                [_targets(circuit, base_f, z, params, name) for z in draws], axis=0
             )
 
     return raw, {"cells": cells, "sweep": sweep, "noise": noise}
@@ -110,7 +112,9 @@ def run(
 
 def main() -> None:
     """Compare every estimator and print the table."""
-    raw, results = run()
+    name = sys.argv[1] if len(sys.argv) > 1 else "randles"
+    circuit = circuits.get(name)
+    raw, results = run(circuit)
 
     print(
         f"{N_CELLS} cells, {N_SWEEPS} sweeps and {N_NOISE} noise draws each\n"
@@ -120,12 +124,12 @@ def main() -> None:
     print(header)
     print("-" * len(header))
 
-    for j, param in enumerate(circuits.PARAM_NAMES):
+    for j, param in enumerate(circuit.param_names):
         print(f"{'none (control)':<20} {param:<12} {np.std(raw[:, j]):>9.3f} {'-':>9} {'-':>9}")
     print()
 
     for name in scales.ESTIMATORS:
-        for j, param in enumerate(circuits.PARAM_NAMES):
+        for j, param in enumerate(circuit.param_names):
             print(
                 f"{name:<20} {param:<12} "
                 f"{np.std(results['cells'][name][:, j]):>9.3f} "

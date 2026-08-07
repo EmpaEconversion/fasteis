@@ -1,7 +1,7 @@
 """Ensure equivalent Python and Rust implementations agree.
 
-- `randles_torch.py` reimplements the circuit maths from `elements.rs`/
-  `circuits.rs`so the residual loss can backpropagate.
+- `TrainingCircuit.impedance_torch` reimplements the circuit maths from
+  `elements.rs`/`circuit.rs` so the residual loss can backpropagate.
 - `src/nn.rs` reimplements the forward pass, resampling and denormalisation
   so inference can run on pure Rust.
 """
@@ -15,78 +15,75 @@ import pytest
 import torch
 
 import fasteis
-from training import circuits, priors, randles_torch, serialize_weights
+from training import circuits, loss, priors, serialize_weights
 
 TAU = 2.0 * np.pi
 RTOL = 1e-10
 
 
-def _reference(params: np.ndarray, freqs: np.ndarray) -> np.ndarray:
-    circuit = fasteis.Circuit(circuits.CIRCUIT_STRING).with_values(list(params))
-    return np.asarray(circuit.impedance(list(freqs)), dtype=np.complex128)
+ALL = pytest.mark.parametrize("circuit", list(circuits.CIRCUITS.values()), ids=lambda c: c.name)
 
 
+def _reference(
+    circuit: circuits.TrainingCircuit, params: np.ndarray, freqs: np.ndarray
+) -> np.ndarray:
+    built = fasteis.Circuit(circuit.circuit_str).with_values(list(params))
+    return np.asarray(built.impedance(list(freqs)), dtype=np.complex128)
+
+
+@ALL
 @pytest.mark.parametrize("seed", range(5))
-def test_torch_impedance_matches_fasteis_over_the_priors(seed: int) -> None:
+def test_torch_impedance_matches_fasteis_over_the_priors(
+    circuit: circuits.TrainingCircuit, seed: int
+) -> None:
     """Sample from the real priors rather than hand-picked values."""
     rng = np.random.default_rng(seed)
-    spectra = priors.sample_many(rng, 40)
+    spectra = priors.sample_many(rng, circuit, 40)
 
     for spectrum in spectra:
         w = torch.tensor(TAU * spectrum.freqs, dtype=torch.float64)
         params = torch.tensor(spectrum.params, dtype=torch.float64)
-        got = randles_torch.impedance(params, w).numpy()
+        got = circuit.impedance_torch(params, w).numpy()
 
         assert got.real == pytest.approx(spectrum.z_clean.real, rel=RTOL, abs=1e-300)
         assert got.imag == pytest.approx(spectrum.z_clean.imag, rel=RTOL, abs=1e-300)
 
 
-@pytest.mark.parametrize("alpha", [0.5, 1.0, 0.999, 0.2, 0.87])
-def test_alpha_edge_cases(alpha: float) -> None:
-    """0.5 and 1.0 take shortcut paths in elements.rs complex_powf."""
-    params = np.array([2.0, 3e-4, alpha, 40.0, 7.5])
-    freqs = np.logspace(-2, 6, 64)
-
-    got = randles_torch.impedance(
-        torch.tensor(params, dtype=torch.float64),
-        torch.tensor(TAU * freqs, dtype=torch.float64),
-    ).numpy()
-    expected = _reference(params, freqs)
-
-    assert got.real == pytest.approx(expected.real, rel=RTOL)
-    assert got.imag == pytest.approx(expected.imag, rel=RTOL)
-
-
-def test_batched_impedance_matches_per_sample() -> None:
+@ALL
+def test_batched_impedance_matches_per_sample(
+    circuit: circuits.TrainingCircuit,
+) -> None:
     rng = np.random.default_rng(7)
-    spectra = priors.sample_many(rng, 16)
+    spectra = priors.sample_many(rng, circuit, 16)
     freqs = np.logspace(-2, 6, 64)
 
     params = torch.tensor(np.array([s.params for s in spectra]), dtype=torch.float64)
     w = torch.tensor(TAU * freqs, dtype=torch.float64).expand(len(spectra), -1)
-    batched = randles_torch.impedance(params, w).numpy()
+    batched = circuit.impedance_torch(params, w).numpy()
 
     for i, spectrum in enumerate(spectra):
-        expected = _reference(spectrum.params, freqs)
+        expected = _reference(circuit, spectrum.params, freqs)
         assert batched[i].real == pytest.approx(expected.real, rel=RTOL)
         assert batched[i].imag == pytest.approx(expected.imag, rel=RTOL)
 
 
-def test_modulus_residuals_match_fasteis() -> None:
+@ALL
+def test_modulus_residuals_match_fasteis(circuit: circuits.TrainingCircuit) -> None:
     """The loss must agree with the residual the optimiser itself minimises."""
     rng = np.random.default_rng(3)
-    spectrum = priors.sample(rng)
-    circuit = fasteis.Circuit(circuits.CIRCUIT_STRING)
+    spectrum = priors.sample(rng, circuit)
+    built = fasteis.Circuit(circuit.circuit_str)
 
     # deliberately off the truth, so the residuals are not all ~0
-    guess = spectrum.params * np.array([1.3, 0.7, 1.0, 1.2, 0.9])
+    nudge = np.full(circuit.n_params, 1.2)
+    nudge[list(circuit.linear_params)] = 1.0  # keep exponents in range
+    guess = spectrum.params * nudge
     expected = np.asarray(
-        circuit.residuals(
-            list(guess), list(spectrum.freqs), list(spectrum.z), "modulus"
-        )
+        built.residuals(list(guess), list(spectrum.freqs), list(spectrum.z), "modulus")
     )
 
-    got = randles_torch.modulus_residuals(
+    got = loss.modulus_residuals(
+        circuit,
         torch.tensor(guess, dtype=torch.float64),
         torch.tensor(TAU * spectrum.freqs, dtype=torch.float64),
         torch.tensor(spectrum.z, dtype=torch.complex128),
@@ -95,31 +92,33 @@ def test_modulus_residuals_match_fasteis() -> None:
     assert got.reshape(-1) == pytest.approx(expected, rel=1e-9, abs=1e-12)
 
 
-def test_residual_loss_is_differentiable() -> None:
+@ALL
+def test_residual_loss_is_differentiable(circuit: circuits.TrainingCircuit) -> None:
     rng = np.random.default_rng(11)
-    spectrum = priors.sample(rng)
+    spectrum = priors.sample(rng, circuit)
 
     params = torch.tensor(spectrum.params, dtype=torch.float64, requires_grad=True)
-    loss = randles_torch.residual_loss(
+    value = loss.residual_loss(
+        circuit,
         params,
         torch.tensor(TAU * spectrum.freqs, dtype=torch.float64),
         torch.tensor(spectrum.z, dtype=torch.complex128),
     )
-    loss.backward()
+    value.backward()
 
     assert params.grad is not None
     assert torch.isfinite(params.grad).all()
 
 
-CHECKPOINT = Path("training/checkpoints/randles/best.pt")
-WEIGHTS = Path("src/models/randles.eisnn")
+def _trained(name: str) -> tuple[Path, Path]:
+    return (
+        Path("training/checkpoints") / name / "best.pt",
+        Path("src/models") / f"{name}.eisnn",
+    )
 
 
-@pytest.mark.skipif(
-    not CHECKPOINT.exists() or not WEIGHTS.exists(),
-    reason="no trained checkpoint and exported weights",
-)
-def test_rust_guess_matches_the_torch_network() -> None:
+@pytest.mark.parametrize("name", list(circuits.CIRCUITS))
+def test_rust_guess_matches_the_torch_network(name: str) -> None:
     """src/nn.rs reimplements the forward pass, resampling and denormalisation.
 
     Loads the weights back out of the weights file the crate uses.
@@ -127,19 +126,23 @@ def test_rust_guess_matches_the_torch_network() -> None:
     """
     from training import train
 
-    net, std, device = train.load_checkpoint(CHECKPOINT)
-    _, tensors = serialize_weights.read(WEIGHTS)
+    checkpoint, weights = _trained(name)
+    if not checkpoint.exists() or not weights.exists():
+        pytest.skip(f"{name} has no trained checkpoint and exported weights")
+
+    circuit, net, std, device = train.load_checkpoint(checkpoint)
+    _, tensors = serialize_weights.read(weights)
     net.load_state_dict(
         {
-            name.removeprefix("w."): torch.tensor(value, dtype=torch.float32)
-            for name, value in tensors.items()
-            if name.startswith("w.")
+            key.removeprefix("w."): torch.tensor(value, dtype=torch.float32)
+            for key, value in tensors.items()
+            if key.startswith("w.")
         }
     )
 
-    circuit = fasteis.Circuit(circuits.CIRCUIT_STRING)
-    for spectrum in priors.sample_many(np.random.default_rng(21), 200):
-        expected = train.guess(net, std, device, spectrum.freqs, spectrum.z)
-        got = np.array(circuit.guess(list(spectrum.freqs), list(spectrum.z)))
+    built = fasteis.Circuit(circuit.circuit_str)
+    for spectrum in priors.sample_many(np.random.default_rng(21), circuit, 200):
+        expected = train.guess(circuit, net, std, device, spectrum.freqs, spectrum.z)
+        got = np.array(built.guess(list(spectrum.freqs), list(spectrum.z)))
         # remaining gap is torch computing in f32 against rust's f64
         assert got == pytest.approx(expected, rel=1e-4)

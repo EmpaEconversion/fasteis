@@ -8,17 +8,19 @@ import pytest
 import fasteis
 from training import circuits, priors, serialize_weights
 
+RANDLES = circuits.get("randles")
+
 
 def test_randles_is_registered() -> None:
     assert "randles" in fasteis.Circuit.ml_circuits()
 
 
 def test_alias_builds_the_trained_topology() -> None:
-    assert fasteis.Circuit("randles").param_names() == list(circuits.PARAM_NAMES)
+    assert fasteis.Circuit("randles").param_names() == list(RANDLES.param_names)
 
 
 def test_guess_init_starts_the_fit_from_the_guess() -> None:
-    spectrum = priors.sample(np.random.default_rng(99))
+    spectrum = priors.sample(np.random.default_rng(99), RANDLES)
     f, z = list(spectrum.freqs), list(spectrum.z)
     circuit = fasteis.Circuit("randles")
 
@@ -32,19 +34,19 @@ def test_guess_init_starts_the_fit_from_the_guess() -> None:
 
 
 def test_guess_init_recovers_the_true_parameters() -> None:
-    spectrum = priors.sample(np.random.default_rng(3))
+    spectrum = priors.sample(np.random.default_rng(3), RANDLES)
     result = fasteis.Circuit("randles").fit(
         list(spectrum.freqs), list(spectrum.z), guess_init=True
     )
 
     assert result.success
-    for name, truth in zip(circuits.PARAM_NAMES, spectrum.params, strict=True):
+    for name, truth in zip(RANDLES.param_names, spectrum.params, strict=True):
         assert result.params[name] == pytest.approx(truth, rel=0.25)
 
 
 def test_topology_matches_regardless_of_labels() -> None:
     """The registry matches on structure, so element labels are irrelevant."""
-    spectrum = priors.sample(np.random.default_rng(11))
+    spectrum = priors.sample(np.random.default_rng(11), RANDLES)
     f, z = list(spectrum.freqs), list(spectrum.z)
 
     named = fasteis.Circuit("randles").guess(f, z)
@@ -63,7 +65,7 @@ def test_topology_matches_regardless_of_labels() -> None:
     ],
 )
 def test_untrained_topologies_report_what_is_available(topology: str) -> None:
-    spectrum = priors.sample(np.random.default_rng(1))
+    spectrum = priors.sample(np.random.default_rng(1), RANDLES)
     circuit = fasteis.Circuit(topology)
 
     with pytest.raises(ValueError) as excinfo:
@@ -86,7 +88,7 @@ def test_too_few_points_are_rejected() -> None:
 
 def test_unsorted_frequencies_give_the_same_guess() -> None:
     """Resampling sorts internally; callers should not have to."""
-    spectrum = priors.sample(np.random.default_rng(4))
+    spectrum = priors.sample(np.random.default_rng(4), RANDLES)
     order = np.random.default_rng(0).permutation(len(spectrum.freqs))
     circuit = fasteis.Circuit("randles")
 
@@ -161,7 +163,7 @@ def test_evaluation_sets_are_reproducible() -> None:
     """Same calls give the same spectra so that runs are comparable."""
     from training import evaluate
 
-    a, b = evaluate.benchmark_set(20), evaluate.benchmark_set(20)
+    a, b = evaluate.benchmark_set(RANDLES, 20), evaluate.benchmark_set(RANDLES, 20)
     for x, y in zip(a, b, strict=True):
         assert np.array_equal(x.params, y.params)
         assert np.array_equal(x.z, y.z)
@@ -174,7 +176,7 @@ def test_a_longer_evaluation_set_extends_the_shorter_one() -> None:
     """
     from training import evaluate
 
-    short, long = evaluate.benchmark_set(10), evaluate.benchmark_set(40)
+    short, long = evaluate.benchmark_set(RANDLES, 10), evaluate.benchmark_set(RANDLES, 40)
     for x, y in zip(short, long[:10], strict=True):
         assert np.array_equal(x.params, y.params)
         assert np.array_equal(x.freqs, y.freqs)

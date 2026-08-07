@@ -29,7 +29,8 @@ from scipy.optimize import least_squares
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import fasteis
-from training import circuits, priors
+from training import priors
+from training.circuits import TrainingCircuit
 
 MAX_NFEV = 400
 FTOL = 1e-10
@@ -63,50 +64,52 @@ class Outcome:
     seconds: float
 
 
-def _to_free(params: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Physical -> unconstrained coordinates (log for magnitudes, alpha linear)."""
+def _to_free(
+    circuit: TrainingCircuit, params: NDArray[np.float64]
+) -> NDArray[np.float64]:
+    """Physical -> unconstrained coordinates (log for magnitudes, exponents linear)."""
+    log = list(circuit.log_params)
     free = np.array(params, dtype=np.float64)
-    free[list(circuits.LOG_PARAMS)] = np.log(
-        np.clip(free[list(circuits.LOG_PARAMS)], 1e-300, None)
-    )
+    free[log] = np.log(np.clip(free[log], 1e-300, None))
     return free
 
 
-def _to_params(free: NDArray[np.float64]) -> NDArray[np.float64]:
+def _to_params(
+    circuit: TrainingCircuit, free: NDArray[np.float64]
+) -> NDArray[np.float64]:
     """Inverse of `_to_free`."""
+    log = list(circuit.log_params)
     params = np.array(free, dtype=np.float64)
-    params[list(circuits.LOG_PARAMS)] = np.exp(
-        np.clip(params[list(circuits.LOG_PARAMS)], -700, 700)
-    )
+    params[log] = np.exp(np.clip(params[log], -700, 700))
     return params
 
 
 def fit_plain_lm(
+    circuit: TrainingCircuit,
     spectrum: priors.Spectrum,
     init_params: NDArray[np.float64],
-    circuit: fasteis.Circuit | None = None,
+    built: fasteis.Circuit,
 ) -> Outcome:
     """Fit a single-start LM."""
-    circuit = circuit if circuit is not None else fasteis.Circuit(circuits.CIRCUIT_STRING)
     freqs = list(spectrum.freqs)
     z = list(spectrum.z)
 
     def residuals(free: NDArray[np.float64]) -> NDArray[np.float64]:
-        p = [float(v) for v in _to_params(free)]
-        return np.asarray(circuit.residuals(p, freqs, z, "modulus"))
+        p = [float(v) for v in _to_params(circuit, free)]
+        return np.asarray(built.residuals(p, freqs, z, "modulus"))
 
     def jacobian(free: NDArray[np.float64]) -> NDArray[np.float64]:
-        params = _to_params(free)
-        j = np.asarray(circuit.jacobian([float(v) for v in params], freqs, z, "modulus"))
+        params = _to_params(circuit, free)
+        j = np.asarray(built.jacobian([float(v) for v in params], freqs, z, "modulus"))
         # chain rule for the log-coordinate parameters
-        scale = np.ones(circuits.N_PARAMS)
-        scale[list(circuits.LOG_PARAMS)] = params[list(circuits.LOG_PARAMS)]
+        scale = np.ones(circuit.n_params)
+        scale[list(circuit.log_params)] = params[list(circuit.log_params)]
         return j * scale
 
     t0 = time.perf_counter()
     result = least_squares(
         residuals,
-        _to_free(init_params),
+        _to_free(circuit, init_params),
         jac=jacobian,
         method="lm",
         ftol=FTOL,
@@ -115,8 +118,9 @@ def fit_plain_lm(
     )
     elapsed = time.perf_counter() - t0
 
-    params = _to_params(result.x)
-    params[circuits.ALPHA] = np.clip(params[circuits.ALPHA], 0.0, 1.0)
+    params = _to_params(circuit, result.x)
+    linear = list(circuit.linear_params)
+    params[linear] = np.clip(params[linear], 0.0, 1.0)
     return Outcome(
         success=bool(result.success),
         evaluations=int(result.nfev),
@@ -127,13 +131,13 @@ def fit_plain_lm(
 
 
 def fit_library(
+    circuit: TrainingCircuit,
     spectrum: priors.Spectrum,
     init_params: NDArray[np.float64],
-    circuit: fasteis.Circuit | None = None,
+    built: fasteis.Circuit,
 ) -> Outcome:
-    """Fit the smarter LM included in Circuit.fit() path, which screens and restarts internally."""
-    circuit = circuit if circuit is not None else fasteis.Circuit(circuits.CIRCUIT_STRING)
-    start = circuit.with_values([float(v) for v in init_params])
+    """Fit via Circuit.fit(), which screens candidate starts and restarts."""
+    start = built.with_values([float(v) for v in init_params])
 
     t0 = time.perf_counter()
     result = start.fit(list(spectrum.freqs), list(spectrum.z), **LIBRARY_FIT_KWARGS)
@@ -143,19 +147,28 @@ def fit_library(
         success=result.success,
         evaluations=int(result.iterations),
         cost=result.cost,
-        params=np.array([result.params[n] for n in circuits.PARAM_NAMES]),
+        params=np.array([result.params[n] for n in circuit.param_names]),
         seconds=elapsed,
     )
 
 
-def truth_init_params(spectrum: priors.Spectrum) -> NDArray[np.float64]:
+def truth_init_params(_: TrainingCircuit) -> InitParams:
     """FLOOR: start at the answer."""
-    return spectrum.params
+
+    def truth(spectrum: priors.Spectrum) -> NDArray[np.float64]:
+        return spectrum.params
+
+    return truth
 
 
-def default_init_params(_: priors.Spectrum) -> NDArray[np.float64]:
-    """Default parameters with no starting values."""
-    return np.array(fasteis.Circuit(circuits.CIRCUIT_STRING).param_values())
+def default_init_params(circuit: TrainingCircuit) -> InitParams:
+    """The library's placeholder values, i.e. what a user gets with no guess."""
+    values = np.array(fasteis.Circuit(circuit.circuit_str).param_values())
+
+    def default(_: priors.Spectrum) -> NDArray[np.float64]:
+        return values
+
+    return default
 
 
 # every magnitude out by this factor, up or down, and alpha out by this much
@@ -163,7 +176,7 @@ PERTURB_FACTOR = 5.0
 PERTURB_ALPHA = 0.15
 
 
-def make_perturbed_init_params(seed: int = 0) -> InitParams:
+def make_perturbed_init_params(circuit: TrainingCircuit, seed: int = 0) -> InitParams:
     """Generate perturbed truth intial parameters.
 
     Each magnitude parameter is multiplied or divided by `PERTURB_FACTOR` at
@@ -171,33 +184,35 @@ def make_perturbed_init_params(seed: int = 0) -> InitParams:
     guess at initial values, like may be expected in real world fitting.
     """
     rng = np.random.default_rng(seed)
+    log = list(circuit.log_params)
+    linear = list(circuit.linear_params)
 
     def perturbed(spectrum: priors.Spectrum) -> NDArray[np.float64]:
         params = np.array(spectrum.params, dtype=np.float64)
-        signs = rng.choice([-1.0, 1.0], size=circuits.N_PARAMS)
-        params[list(circuits.LOG_PARAMS)] *= (
-            PERTURB_FACTOR ** signs[list(circuits.LOG_PARAMS)]
-        )
-        params[circuits.ALPHA] = np.clip(
-            params[circuits.ALPHA] + signs[circuits.ALPHA] * PERTURB_ALPHA,
-            *circuits.ALPHA_RANGE,
+        signs = rng.choice([-1.0, 1.0], size=circuit.n_params)
+        params[log] *= PERTURB_FACTOR ** signs[log]
+        params[linear] = np.clip(
+            params[linear] + signs[linear] * PERTURB_ALPHA, *circuit.alpha_range
         )
         return params
 
     return perturbed
 
 
-Fitter = Callable[[priors.Spectrum, NDArray[np.float64], fasteis.Circuit], Outcome]
+Fitter = Callable[
+    [TrainingCircuit, priors.Spectrum, NDArray[np.float64], fasteis.Circuit], Outcome
+]
 
 
 def fit_all(
+    circuit: TrainingCircuit,
     spectra: Sequence[priors.Spectrum],
     init_params: InitParams,
     fitter: Fitter = fit_plain_lm,
 ) -> list[Outcome]:
     """Fit every spectrum from the parameters `init_params` produces."""
-    circuit = fasteis.Circuit(circuits.CIRCUIT_STRING)
-    return [fitter(s, init_params(s), circuit) for s in spectra]
+    built = fasteis.Circuit(circuit.circuit_str)
+    return [fitter(circuit, s, init_params(s), built) for s in spectra]
 
 
 @dataclass(frozen=True)
@@ -257,39 +272,34 @@ def print_table(summaries: Sequence[Summary]) -> None:
         )
 
 
-def validation_set(n: int) -> list[priors.Spectrum]:
+def validation_set(circuit: TrainingCircuit, n: int) -> list[priors.Spectrum]:
     """Spectra for choosing a checkpoint during training."""
-    return priors.sample_many(priors.split_rng(priors.VALIDATION), n)
+    return priors.sample_many(priors.split_rng(priors.VALIDATION), circuit, n)
 
 
-def benchmark_set(n: int) -> list[priors.Spectrum]:
+def benchmark_set(circuit: TrainingCircuit, n: int) -> list[priors.Spectrum]:
     """Spectra for the final numbers. Disjoint from training and validation."""
-    return priors.sample_many(priors.split_rng(priors.BENCHMARK), n)
+    return priors.sample_many(priors.split_rng(priors.BENCHMARK), circuit, n)
 
 
 def main() -> None:
-    """Verify the harness separates FLOOR from library defaults."""
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 500
-    spectra = benchmark_set(n)
+    """Check the harness separates FLOOR from library defaults, without a model."""
+    from training import circuits  # noqa: PLC0415  (avoids an import cycle)
 
-    floor = fit_all(spectra, truth_init_params)
-    default = fit_all(spectra, default_init_params)
+    args = sys.argv[1:]
+    name = args[0] if args else "randles"
+    n = int(args[1]) if len(args) > 1 else 500
+    circuit = circuits.get(name)
+    spectra = benchmark_set(circuit, n)
 
-    print(f"{n} benchmark spectra, single-start LM, max_nfev={MAX_NFEV}\n")
+    floor = fit_all(circuit, spectra, truth_init_params(circuit))
+    default = fit_all(circuit, spectra, default_init_params(circuit))
+
+    print(f"{n} benchmark spectra, {name!r}, single-start LM, max_nfev={MAX_NFEV}\n")
     print_table(
         [
-            summarise("FLOOR (truth)", floor, floor),
-            summarise("A (defaults)", default, floor),
-        ]
-    )
-
-    lib_floor = fit_all(spectra, truth_init_params, fit_library)
-    lib_default = fit_all(spectra, default_init_params, fit_library)
-    print("\nsecondary: shipped Circuit.fit(), which screens and restarts internally\n")
-    print_table(
-        [
-            summarise("FLOOR (truth)", lib_floor, lib_floor),
-            summarise("A (defaults)", lib_default, lib_floor),
+            summarise("floor (truth)", floor, floor),
+            summarise("library defaults", default, floor),
         ]
     )
 
