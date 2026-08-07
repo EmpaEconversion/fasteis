@@ -1022,8 +1022,7 @@ mod tests {
 
         assert!(pso.success);
         // R//CPE branches are notoriously non-identifiable, so this doesn't demand
-        // recovering the exact truth -- just a genuinely good fit (this threshold
-        // corresponds to well under 1% average weighted residual).
+        // recovering the exact parameters, just a good fit
         assert!(pso.cost < 5e-3, "pso.cost={} too high, params={:?}", pso.cost, pso.params);
     }
 

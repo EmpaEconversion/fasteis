@@ -333,8 +333,8 @@ mod tests {
 
     #[test]
     fn complex_powf_boundary_cases_match_general_powf() {
-        // Genuinely complex z (not real, not imaginary-zero), including the
-        // pure-imaginary jw shape that Cpe/La/Zarc/Tlmq actually feed in.
+        // Complex z, including the pure-imaginary jw shape that
+        // Cpe/La/Zarc/Tlmq actually feed in.
         let zs = [
             Complex64::new(3.0, 4.0),
             Complex64::new(-2.0, 7.5),
