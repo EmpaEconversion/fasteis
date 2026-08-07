@@ -3,6 +3,8 @@ use pyo3::prelude::*;
 mod circuit;
 mod elements;
 mod fit;
+mod models;
+mod nn;
 mod python;
 
 use python::{Circuit, FitResult};

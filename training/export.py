@@ -1,4 +1,4 @@
-"""Converts a torch checkpoint into the `.feisnn` container embedded by src/models.rs."""
+"""Converts a torch checkpoint into the `.eisnn` container embedded by src/models.rs."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def main() -> None:
     p.add_argument("--dtype", default="f16", choices=sorted(serialize_weights.DTYPES))
     args = p.parse_args()
 
-    export(args.checkpoint, args.models_dir / f"{args.name}.feisnn", args.dtype)
+    export(args.checkpoint, args.models_dir / f"{args.name}.eisnn", args.dtype)
 
 
 if __name__ == "__main__":

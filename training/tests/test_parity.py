@@ -112,7 +112,7 @@ def test_residual_loss_is_differentiable() -> None:
 
 
 CHECKPOINT = Path("training/checkpoints/randles/best.pt")
-WEIGHTS = Path("src/models/randles.feisnn")
+WEIGHTS = Path("src/models/randles.eisnn")
 
 
 @pytest.mark.skipif(

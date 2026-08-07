@@ -1,8 +1,8 @@
-"""The `.feisnn` weight container read by src/nn.rs.
+"""The `.eisnn` weight container read by src/nn.rs.
 
 Flat self-describing little-endian binary layout:
 
-magic     8 bytes  "FEISNN02"
+magic     8 bytes  "EISNN001"
 n_meta    u32      then n_meta pairs of (u32 len, utf-8 bytes) key, value
 n_tensors u32      then per tensor:
             u32 len + utf-8 name
@@ -22,7 +22,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-MAGIC = b"FEISNN02"
+MAGIC = b"EISNN001"
 
 F32, F16, INT8 = 0, 1, 2
 
@@ -110,7 +110,7 @@ def read(path: str | Path) -> tuple[dict[str, str], dict[str, NDArray[np.float64
     """Read a weight container. Used to round-trip test the writer."""
     r = _Reader(Path(path).read_bytes())
     if r.take(len(MAGIC)) != MAGIC:
-        raise ValueError("not a feisnn file")
+        raise ValueError("not an eisnn file")
 
     metadata = {}
     for _ in range(r.u32()):

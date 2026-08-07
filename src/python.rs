@@ -10,6 +10,17 @@ use rayon::prelude::*;
 use crate::circuit::{self, Node, Series};
 use crate::elements::Element;
 use crate::fit::{self, FitOptions, Weighting};
+use crate::models;
+
+/// Look up the model trained for `node`'s topology and run it over the spectrum.
+fn guess_params(node: &[Node], frequencies: &[f64], impedances: &[Complex64]) -> PyResult<Vec<f64>> {
+    let model = models::find_for_topology(node)
+        .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?;
+    model
+        .guesser()
+        .and_then(|g| g.guess(frequencies, impedances))
+        .map_err(|e| PyValueError::new_err(e.to_string()))
+}
 
 /// Below this many frequency points, rayon's ~20 us overhead outweighs
 /// the benefit of parallelizing, so we fall back to a plain sequential map.
@@ -123,11 +134,34 @@ impl Circuit {
     /// Parse a circuit topology string, e.g. `"R0-p(R1,Cpe1)"` or
     /// `"R0-p(R1-C1,R2-Cpe2)"`. The string carries no parameter values --
     /// every element gets a placeholder default; set real values afterward
-    /// with `with_values()` or `with_named_values()`.
+    /// with `with_values()`, `with_named_values()`, or `fit(guess_init=True)`.
+    ///
+    /// Also accepts the name of a built-in circuit, e.g. `"randles"`; see
+    /// `ml_circuits()`.
     #[new]
     fn new(s: &str) -> PyResult<Circuit> {
-        let node = circuit::parse(s).map_err(|e| PyValueError::new_err(circuit::describe_parse_error(s, &e)))?;
+        let text = models::resolve_alias(s).unwrap_or(s);
+        let node =
+            circuit::parse(text).map_err(|e| PyValueError::new_err(circuit::describe_parse_error(text, &e)))?;
         Ok(Circuit { node })
+    }
+
+    /// Names accepted by the constructor that have trained initial-parameter
+    /// models, and so can be used with `fit(guess_init=True)`.
+    #[staticmethod]
+    fn ml_circuits() -> Vec<&'static str> {
+        models::names()
+    }
+
+    /// Machine-learning guess of starting parameters for this circuit's topology,
+    /// in `param_names()` order.
+    ///
+    /// Raises if no model has been trained for this topology.
+    fn guess(&self, frequencies: Vec<f64>, impedances: Vec<Complex64>) -> PyResult<Vec<f64>> {
+        if frequencies.len() != impedances.len() {
+            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+        }
+        guess_params(&self.node, &frequencies, &impedances)
     }
 
     /// Parameter names, in the same order `with_values()` consumes and
@@ -244,7 +278,8 @@ impl Circuit {
     }
 
     #[pyo3(signature = (
-        frequencies, impedances, weight="modulus", method="levenberg_marquardt",
+        frequencies, impedances, guess_init=false,
+        weight="modulus", method="levenberg_marquardt",
         max_iterations=200, ftol=1e-8, xtol=1e-8,
         num_particles=200, generations=1000,
         nelder_mead_iterations=2000,
@@ -259,6 +294,7 @@ impl Circuit {
         py: Python<'_>,
         frequencies: Vec<f64>,
         impedances: Vec<Complex64>,
+        guess_init: bool,
         weight: &str,
         method: &str,
         max_iterations: u32,
@@ -276,7 +312,17 @@ impl Circuit {
         seed: Option<u64>,
     ) -> PyResult<FitResult> {
         let weighting = parse_weighting(weight)?;
-        let node = self.node.clone();
+        if frequencies.len() != impedances.len() {
+            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+        }
+
+        let node = if guess_init {
+            let values = guess_params(&self.node, &frequencies, &impedances)?;
+            circuit::with_param_values(&self.node, &values)
+        } else {
+            self.node.clone()
+        };
+
         let outcome = py
             .allow_threads(|| match method {
                 "levenberg_marquardt" => {

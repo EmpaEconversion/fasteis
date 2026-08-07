@@ -97,7 +97,7 @@ def test_unsorted_frequencies_give_the_same_guess() -> None:
 
 
 def test_format_round_trips(tmp_path) -> None:
-    path = tmp_path / "round.feisnn"
+    path = tmp_path / "round.eisnn"
     tensors = {
         "a": np.arange(6, dtype=np.float64).reshape(2, 3),
         "b": np.array([1.5, -2.5]),
@@ -122,7 +122,7 @@ def test_every_dtype_round_trips(tmp_path, dtype: str) -> None:
         "wide": rng.normal(size=64) * 8.0,
         "zeros": np.zeros(7),  # int8 scale must not divide by zero
     }
-    path = tmp_path / f"{dtype}.feisnn"
+    path = tmp_path / f"{dtype}.eisnn"
     serialize_weights.write(path, {"circuit": "R0-C1"}, tensors, dtype=dtype)
 
     _, got = serialize_weights.read(path)
@@ -135,7 +135,7 @@ def test_every_dtype_round_trips(tmp_path, dtype: str) -> None:
 
 def test_unknown_dtype_is_rejected(tmp_path) -> None:
     with pytest.raises(ValueError, match="unknown dtype"):
-        serialize_weights.write(tmp_path / "x.feisnn", {}, {"a": np.zeros(2)}, dtype="f8")
+        serialize_weights.write(tmp_path / "x.eisnn", {}, {"a": np.zeros(2)}, dtype="f8")
 
 
 @pytest.mark.parametrize("dtype", ["f16", "int8"])
@@ -148,7 +148,7 @@ def test_only_weights_are_quantised(tmp_path, dtype: str) -> None:
     stats = np.array([-0.805, -0.416, 0.775, -0.063, -0.784])
     tensors = {"w.layer.weight": np.linspace(-1.0, 1.0, 64), "target_mean": stats}
 
-    path = tmp_path / f"{dtype}.feisnn"
+    path = tmp_path / f"{dtype}.eisnn"
     serialize_weights.write(path, {"circuit": "R0-C1"}, tensors, dtype=dtype)
     _, got = serialize_weights.read(path)
 
