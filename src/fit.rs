@@ -100,8 +100,7 @@ pub(crate) fn residuals(
     r
 }
 
-/// Central-difference Jacobian columns (one per parameter), computed in parallel via
-/// rayon -- the natural parallelism axis given the typically small (2-15) parameter count.
+/// Central-difference Jacobian columns.
 /// Perturbations are not clamped to physical bounds: impedance() is smooth well outside
 /// those ranges, so clamping here would bias the derivative estimate near a boundary.
 pub(crate) fn jacobian_columns(
@@ -130,32 +129,6 @@ pub(crate) fn jacobian_columns(
 /// Operates in log-coordinate space for open-bound (lower-bound-only) parameters --
 /// reusing the same `to_pso_coord`/`from_pso_coord` transform PSO uses -- and raw
 /// physical space for double-bounded ones (alpha/gamma).
-///
-/// Three earlier approaches were tried first:
-///   1. Clamping each proposed step into bounds. This desyncs the crate's internal
-///      predicted-vs-actual step-quality bookkeeping (it linearizes around the point
-///      it *thinks* it evaluated, but `residuals()`/`jacobian()` were actually
-///      evaluated at the clamped point) -- observed in practice pinning a CPE alpha
-///      to exactly 0.0 with the rest of that branch going nonphysical.
-///   2. Reparametrizing *every* bounded parameter through a smooth sigmoid/exp
-///      transform. This avoided the clamp desync but introduced a worse pathology:
-///      the transform distorts the local linear (Gauss-Newton) model badly enough
-///      that on real data the solver converged to a dramatically worse local optimum
-///      than plain unconstrained LM from the identical starting point.
-///   3. Plain unconstrained LM (no bounds at all, physical space throughout). This
-///      matched a scipy-based reference well on the one dataset it was checked
-///      against, but across a broader sample of ~150 real datasets it catastrophically
-///      diverged (parameters landing at 1e-12 or 1e9+) on roughly 40% of them -- an
-///      unacceptable failure rate.
-///
-/// Log-coordinate space for open-bound parameters only turns out to split the
-/// difference: unlike (2), it doesn't touch double-bounded parameters at all (they
-/// stay exactly as unconstrained as approach 3, since alpha/gamma's small, already-
-/// linear [0,1] range was never the source of the divergence), and a unit coordinate
-/// step is a constant *multiplicative* step in physical space -- gentle enough not
-/// to wreck the local linear model the way raw exp/sigmoid did, while still making a
-/// literal runaway to 1e9 or 1e-12 impossible. See `levenberg_marquardt_fit` for why
-/// this alone still isn't enough and needs multi-start on top.
 struct LmProblem<'a> {
     topology: &'a [Node],
     omegas: Vec<f64>,
@@ -163,6 +136,9 @@ struct LmProblem<'a> {
     weights: Vec<f64>,
     bounds: Vec<(f64, f64)>,
     coord: DVector<f64>,
+    /// Parameters held at their starting coordinate for the whole run, via a
+    /// zeroed Jacobian column in `jacobian()`.
+    fixed: Vec<bool>,
 }
 
 impl LmProblem<'_> {
@@ -195,6 +171,9 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
         let m = cols.first()?.len();
         let n = cols.len();
         Some(DMatrix::from_fn(m, n, |i, j| {
+            if self.fixed[j] {
+                return 0.0;
+            }
             let (lo, hi) = self.bounds[j];
             // d(physical)/d(coord): identity for double-bounded (hi finite), else
             // p = lo + 10^c => dp/dc = ln(10) * 10^c = ln(10) * (p - lo).
@@ -205,7 +184,8 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
 }
 
 /// One LM run from a specific starting coordinate vector; returns (params, success,
-/// evaluations). Shared by every restart in `levenberg_marquardt_fit`.
+/// evaluations). `fixed[j] == true` holds parameter `j` at `start_coord[j]` for the
+/// whole run; pass an all-`false` mask for a normal, fully free run.
 fn levenberg_marquardt_single_start(
     topology: &[Node],
     omegas: &[f64],
@@ -213,6 +193,7 @@ fn levenberg_marquardt_single_start(
     weights: &[f64],
     bounds: &[(f64, f64)],
     start_coord: DVector<f64>,
+    fixed: &[bool],
     options: &FitOptions,
 ) -> (Vec<f64>, bool, u64) {
     let problem = LmProblem {
@@ -222,6 +203,7 @@ fn levenberg_marquardt_single_start(
         weights: weights.to_vec(),
         bounds: bounds.to_vec(),
         coord: start_coord,
+        fixed: fixed.to_vec(),
     };
 
     let solver = LevenbergMarquardt::new()
@@ -236,25 +218,101 @@ fn levenberg_marquardt_single_start(
     (params, success, report.number_of_evaluations as u64)
 }
 
-/// Deterministic multiplicative perturbations applied to open-bound (lower-bound-
-/// only) parameters when multi-starting LM, in addition to the caller's own guess
-/// (factor 1.0). Double-bounded parameters (alpha/gamma) are left at the caller's
-/// value in every restart -- their small, linear [0,1] range was never the source of
-/// the divergence multi-start fixes (see `LmProblem`'s doc comment). Measured
-/// empirically across ~150 real datasets: single-start log-coordinate LM matched or
-/// beat impedance.py's bounded trust-region-reflective fit on only ~57% of them
-/// (many landing in a genuinely worse local optimum, though none catastrophically);
-/// adding these 4 extra fixed starting points raised that to ~98%.
+/// Multiplicative perturbations applied to open-bound (lower-bound-only)
+/// parameters when generating candidate starting points, alongside the caller's
+/// own guess (factor 1.0).
 const LM_RESTART_FACTORS: [f64; 5] = [1.0, 3.0, 1.0 / 3.0, 8.0, 1.0 / 8.0];
 
-/// Fit `topology`'s parameters to measured impedance data via Levenberg-Marquardt.
-/// Tries `LM_RESTART_FACTORS.len()` fixed starting points (the caller's own initial
-/// guess plus a handful of deterministic multiplicative perturbations of it) and
-/// keeps whichever converges to the lowest cost, preferring any run that reports
-/// convergence over one that doesn't. Each restart is a fast, independent LM run
-/// (~2ms typical), so the total cost is still a small fraction of a single
-/// `impedance.py` fit even with several of them. Always returns the best parameters
-/// found, even if no restart reports success (max iterations exhausted, etc.).
+/// Spread tried for double-bounded parameters (alpha/gamma) when generating
+/// candidate starting points, alongside the caller's own guess.
+const ALPHA_GAMMA_PROBES: [f64; 4] = [0.2, 0.4, 0.6, 0.8];
+
+/// A candidate starting point: physical-space parameter values, plus its cost at a
+/// single `residuals()` evaluation (no optimization).
+struct Candidate {
+    params: Vec<f64>,
+    screening_cost: f64,
+}
+
+/// Candidate starting points for `levenberg_marquardt_fit`, ranked by screening
+/// cost. Sweeps the open-bound parameters (`LM_RESTART_FACTORS`) and the
+/// double-bounded parameters (`ALPHA_GAMMA_PROBES`) independently, each holding
+/// the other group at the caller's guess.
+fn candidate_starting_points(
+    topology: &[Node],
+    p0: &[f64],
+    bounds: &[(f64, f64)],
+    omegas: &[f64],
+    z_measured: &[Complex64],
+    weights: &[f64],
+) -> Vec<Candidate> {
+    let screen = |params: Vec<f64>| {
+        let r = residuals(topology, &params, omegas, z_measured, weights);
+        let cost = 0.5 * r.iter().map(|x| x * x).sum::<f64>();
+        Candidate { params, screening_cost: cost }
+    };
+
+    let mut candidates = vec![screen(p0.to_vec())];
+
+    for &factor in &LM_RESTART_FACTORS[1..] {
+        let params: Vec<f64> =
+            p0.iter().zip(bounds).map(|(&p, &(_lo, hi))| if hi.is_finite() { p } else { p * factor }).collect();
+        candidates.push(screen(params));
+    }
+
+    for &probe in &ALPHA_GAMMA_PROBES {
+        let params: Vec<f64> = p0
+            .iter()
+            .zip(bounds)
+            .map(|(&p, &(lo, hi))| if hi.is_finite() { lo + probe * (hi - lo) } else { p })
+            .collect();
+        candidates.push(screen(params));
+    }
+
+    candidates.sort_by(|a, b| a.screening_cost.total_cmp(&b.screening_cost));
+    candidates
+}
+
+/// Distance from either edge of `[0, 1]`, where a double-bounded parameter
+/// counts as pinned in `looks_reliable`.
+const BOUND_PIN_TOLERANCE: f64 = 1e-6;
+
+/// Multiplicative distance from its starting value beyond which an open-bound
+/// parameter counts as runaway in `looks_reliable`.
+const RUNAWAY_RATIO: f64 = 1e6;
+
+/// Multiplicative distance from its lower bound within which an open-bound
+/// parameter counts as pinned in `looks_reliable`. Note that `lo` is a fixed
+/// numerical floor (`1e-12`, see `Element::param_bounds`).
+const LOWER_BOUND_PIN_FACTOR: f64 = 100.0;
+
+/// Judge whether a converged value is trustworthy enough to stop restarting on.
+/// If the solver says not converged, or any parameter landed pinned or runaway,
+/// then more restarts are attempted.
+fn looks_reliable(params: &[f64], p0: &[f64], bounds: &[(f64, f64)], success: bool, cost: f64) -> bool {
+    if !success || !cost.is_finite() {
+        return false;
+    }
+    params.iter().zip(p0).zip(bounds).all(|((&p, &p0), &(lo, hi))| {
+        if hi.is_finite() {
+            let span = hi - lo;
+            (p - lo).abs() > BOUND_PIN_TOLERANCE * span && (hi - p).abs() > BOUND_PIN_TOLERANCE * span
+        } else {
+            let ratio = p / p0.abs().max(1e-300);
+            p > lo * LOWER_BOUND_PIN_FACTOR
+                && ratio.is_finite()
+                && (1.0 / RUNAWAY_RATIO..RUNAWAY_RATIO).contains(&ratio)
+        }
+    })
+}
+
+/// Fit a circuit to impedance data with Levenberg-Marquardt.
+/// Starts with several candidate starting points.
+/// Fits most promising first.
+/// Stops when fit converged and `looks_reliable` trusts the result.
+/// Fallback to whichever run had the lowest cost.
+/// If result has a double-bounded paramter pinned at/beyong its bound, repolish
+/// with the parameter clamped and the rest refit, keep only if fit improves.
 pub fn levenberg_marquardt_fit(
     topology: &[Node],
     frequencies: &[f64],
@@ -277,15 +335,15 @@ pub fn levenberg_marquardt_fit(
     let bounds = circuit::param_bounds(topology);
     let p0 = circuit::param_values(topology);
 
+    let candidates = candidate_starting_points(topology, &p0, &bounds, &omegas, z_measured, &weights);
+
     let mut best: Option<(Vec<f64>, bool, f64)> = None;
     let mut total_evaluations = 0u64;
 
-    for &factor in &LM_RESTART_FACTORS {
-        let start_coord: Vec<f64> = p0
-            .iter()
-            .zip(&bounds)
-            .map(|(&p, &b)| to_pso_coord(if b.1.is_finite() { p } else { p * factor }, b))
-            .collect();
+    let no_fixed = vec![false; p0.len()];
+    for candidate in &candidates {
+        let start_coord: Vec<f64> =
+            candidate.params.iter().zip(&bounds).map(|(&p, &b)| to_pso_coord(p, b)).collect();
 
         let (params, success, evaluations) = levenberg_marquardt_single_start(
             topology,
@@ -294,6 +352,7 @@ pub fn levenberg_marquardt_fit(
             &weights,
             &bounds,
             DVector::from_vec(start_coord),
+            &no_fixed,
             options,
         );
         total_evaluations += evaluations;
@@ -306,20 +365,54 @@ pub fn levenberg_marquardt_fit(
         let is_better = best.as_ref().is_none_or(|(_, best_success, best_cost)| {
             (success && !*best_success) || (success == *best_success && cost < *best_cost)
         });
+        let reliable = looks_reliable(&params, &p0, &bounds, success, cost);
         if is_better {
             best = Some((params, success, cost));
         }
+        if reliable {
+            break;
+        }
     }
 
-    let (params, success, _) = best.expect("LM_RESTART_FACTORS is non-empty");
-    Ok(build_outcome(topology, params, success, total_evaluations, &omegas, z_measured, &weights))
+    let (params, success, cost) = best.expect("candidate_starting_points always returns at least one candidate");
+
+    let clamped: Vec<f64> = params.iter().zip(&bounds).map(|(&p, &(lo, hi))| p.clamp(lo, hi)).collect();
+    let fixed: Vec<bool> =
+        params.iter().zip(&bounds).map(|(&p, &(lo, hi))| hi.is_finite() && (p <= lo || p >= hi)).collect();
+
+    let (final_params, final_success) = if fixed.iter().any(|&f| f) {
+        let start_coord: Vec<f64> = clamped.iter().zip(&bounds).map(|(&p, &b)| to_pso_coord(p, b)).collect();
+        let (repolished, repolished_success, repolish_evals) = levenberg_marquardt_single_start(
+            topology,
+            &omegas,
+            z_measured,
+            &weights,
+            &bounds,
+            DVector::from_vec(start_coord),
+            &fixed,
+            options,
+        );
+        total_evaluations += repolish_evals;
+
+        let repolished_cost = {
+            let r = residuals(topology, &repolished, &omegas, z_measured, &weights);
+            0.5 * r.iter().map(|x| x * x).sum::<f64>()
+        };
+        if repolished_success && repolished_cost < cost {
+            (repolished, true)
+        } else {
+            (clamped, success)
+        }
+    } else {
+        (params, success)
+    };
+
+    Ok(build_outcome(topology, final_params, final_success, total_evaluations, &omegas, z_measured, &weights))
 }
 
-/// Assemble a `FitOutcome` from a raw parameter vector: cost/chi_square/stderr are
-/// always recomputed fresh from `params` here (never reused from a solver's internal
-/// report), so they stay consistent with whatever's actually being returned --
-/// including when `params` didn't come directly from that solver's own endpoint (see
-/// `particle_swarm_fit`'s fallback to PSO's raw best position).
+/// Assemble a `FitOutcome` from a raw parameter vector: cost/chi_square/stderr
+/// are always recomputed as the params may not come directly from that solver's
+/// own endpoint.
 fn build_outcome(
     topology: &[Node],
     params: Vec<f64>,
@@ -329,15 +422,8 @@ fn build_outcome(
     z_measured: &[Complex64],
     weights: &[f64],
 ) -> FitOutcome {
-    // Final safety clamp into physical bounds -- every method here (LM directly, or
-    // PSO/NelderMead/DE/SA/basin-hopping's own search/simplex/perturbation dynamics)
-    // can in principle produce a slightly out-of-range value (e.g. NelderMead's
-    // reflection/expansion steps aren't themselves bounded, and LM's open-bound
-    // parameters are log-coordinate-bounded but its double-bounded alpha/gamma
-    // parameters are left unconstrained -- see LmProblem's doc comment). This is a
-    // pure reporting step applied once, after the search is otherwise done, so it
-    // can't corrupt anything the way clamping *during* iteration did (see
-    // LmProblem's doc comment for that history).
+    // Final safety clamp into physical bounds as methods can produce a slightly
+    // out-of-range value.
     let bounds = circuit::param_bounds(topology);
     let params: Vec<f64> = params.into_iter().zip(&bounds).map(|(v, &(lo, hi))| v.clamp(lo, hi)).collect();
 
@@ -376,16 +462,9 @@ fn build_outcome(
     }
 }
 
-/// Coordinate PSO actually searches in for one parameter: `log10(p - lo)` for an
-/// open-ended (lower-bound-only) parameter, `p` itself (identity) for a
-/// double-bounded one. PSO samples *uniformly* within its box in whatever
-/// coordinate it's given -- searching R/C/L/Q directly in physical (linear) space
-/// wastes almost all particles near the top of a multi-decade box, since real EIS
-/// values for those naturally vary log-uniformly (a Q of 1e-6 and a Q of 1e-2 are
-/// both totally ordinary, and a linear box spanning both puts ~none of its mass
-/// near the small end). Double-bounded parameters (alpha/gamma in `[0, 1]`) don't
-/// have this problem -- the range is already small and physically linear -- so they
-/// pass through unchanged.
+/// Coordinate PSO actually searches in for one parameter: `log10(p - lo)` for
+/// an open-ended (lower-bound-only) parameter e.g. R/C/L/Q, `p` itself
+/// (identity) for a double-bounded one (e.g. alpha/gamma).
 fn to_pso_coord(p: f64, (lo, hi): (f64, f64)) -> f64 {
     if hi.is_finite() { p } else { (p - lo).max(1e-300).log10() }
 }
@@ -394,12 +473,9 @@ fn from_pso_coord(c: f64, (lo, hi): (f64, f64)) -> f64 {
     if hi.is_finite() { c } else { lo + 10f64.powf(c) }
 }
 
-/// `argmin::core::CostFunction` adapter for particle swarm optimization. Reuses the
-/// same optimizer-agnostic `residuals()` core as the LM path; unlike `LmProblem`,
-/// PSO needs no bounds workaround at all -- particles are sampled and clamped
-/// directly within `(lower, upper)` by the solver itself. `Param` here is the
-/// PSO-coordinate vector (see `to_pso_coord`), converted to physical parameters
-/// via `bounds` before evaluating the model.
+/// `argmin::core::CostFunction` adapter for particle swarm optimization.
+/// `Param` here is the PSO-coordinate vector (see `to_pso_coord`), converted to
+/// physical parameters via `bounds` before evaluating the model.
 struct PsoProblem<'a> {
     topology: &'a [Node],
     omegas: &'a [f64],
@@ -420,11 +496,9 @@ impl CostFunction for PsoProblem<'_> {
 }
 
 /// Derive a finite search box, in PSO-coordinate space, from each parameter's
-/// physical bounds and its current value. PSO requires *both* endpoints finite
-/// (particles are sampled uniformly within the box), but our default bounds are
-/// `(lo, inf)` for most element parameters -- for those, center a wide (8-decade)
-/// multiplicative window on the current value instead of trying to search the whole
-/// positive real line, then convert that window to PSO-coordinate space.
+/// physical bounds and its current value. PSO requires both endpoints, so for
+/// singly-bounded parameters center a wide (8-decade) window on the current
+/// value, then convert that window to PSO-coordinate space.
 /// Double-bounded parameters just get their native `[lo, hi]` range directly.
 fn pso_search_box(bounds: &[(f64, f64)], guess: &[f64]) -> (Vec<f64>, Vec<f64>) {
     bounds
@@ -442,15 +516,8 @@ fn pso_search_box(bounds: &[(f64, f64)], guess: &[f64]) -> (Vec<f64>, Vec<f64>) 
         .unzip()
 }
 
-/// Fit via particle swarm optimization (a global, gradient-free search that respects
-/// bounds natively) followed by a `levenberg_marquardt_fit` polish from the best
-/// position PSO finds -- global search to land in the right basin, then local
-/// refinement for a precise answer. Meant for topologies where the fitting landscape
-/// is hard enough that `levenberg_marquardt_fit`'s local search can converge to a
-/// poor optimum from a rough initial guess (e.g. multiple correlated R//CPE branches).
-///
-/// `seed`: PSO is stochastic; pass `Some(seed)` for a reproducible run (e.g. tests,
-/// or comparing configurations fairly), or `None` to seed from the OS each call.
+/// Fit via particle swarm optimization followed by a LM polish.
+/// Pass `Some(seed)` for a reproducible run.
 pub fn particle_swarm_fit(
     topology: &[Node],
     frequencies: &[f64],
@@ -499,15 +566,7 @@ pub fn particle_swarm_fit(
     polish_or_fallback(topology, best, pso_evaluations, frequencies, z_measured, weighting, &omegas, &weights)
 }
 
-/// Polish a candidate parameter vector with local LM, but never return something
-/// worse than the candidate itself. The polish runs unconstrained (see `LmProblem`'s
-/// doc comment for why), which is fine when it starts near a genuine optimum but can
-/// occasionally run away to something far worse if the candidate sits somewhere
-/// extreme (observed in practice: a near-singular CPE Q sent a "polished" cost to
-/// ~1e9). So the polish is only trusted if it actually improves on the candidate's
-/// own raw cost -- otherwise fall back to the candidate unpolished, which is always
-/// at least as sane as whatever produced it (every global/derivative-free method
-/// here restricts its search to `pso_search_box` already).
+/// Polish a candidate parameter vector with local unconstrained LM.
 #[allow(clippy::too_many_arguments)]
 fn polish_or_fallback(
     topology: &[Node],
@@ -533,11 +592,8 @@ fn polish_or_fallback(
     }
 }
 
-/// Fit via the Nelder-Mead simplex method (derivative-free, local-ish -- explores a
-/// region around the initial simplex rather than the whole search space the way PSO
-/// does) followed by an LM polish, same pattern as `particle_swarm_fit`. Cheaper per
-/// evaluation than PSO/DE since it doesn't maintain a population, but less likely to
-/// escape a bad basin far from the initial guess.
+/// Fit via the Nelder-Mead simplex method (derivative-free, local-ish) followed
+/// by an LM polish. Cheaper than PSO but might not escape a bad basin.
 pub fn nelder_mead_fit(
     topology: &[Node],
     frequencies: &[f64],
@@ -591,24 +647,11 @@ pub fn nelder_mead_fit(
     polish_or_fallback(topology, best, iterations, frequencies, z_measured, weighting, &omegas, &weights)
 }
 
-/// Number of independent DE restarts `differential_evolution_fit` runs, keeping the
-/// best result (compared using our own f64 residuals(), not the crate's internal f32
-/// cost -- see below) across all of them. Measured empirically on a real, hard
-/// 8-parameter topology: a single run at 20_000 evaluations only finds the true
-/// optimum ~70% of the time (a parameter in a nearly-flat cost direction
-/// occasionally drifts to an extreme value instead). Restarts are cheap here
-/// (~35ms each on that case) relative to the reliability gained, so this errs
-/// generous rather than cutting it close to the minimum that clears the bar.
+/// Number of independent restarts for `differential_evolution_fit`.
 const DE_RESTARTS: usize = 10;
 
-/// Fit via self-adaptive differential evolution (a population-based global search,
-/// like PSO but with a different mutation/crossover strategy -- worth having as a
-/// second global method since the two don't always find the same basin) followed by
-/// an LM polish. The underlying crate works in `f32`; that's fine here since DE is
-/// only used to land in the right basin; the polish recovers full `f64` precision.
-///
-/// Runs `DE_RESTARTS` independent populations and keeps the best across all of
-/// them -- see its doc comment for why a single run isn't reliable enough on its own.
+/// Fit via self-adaptive differential evolution followed by LM polish.
+/// The DE crate works in `f32`, LM recovers full `f64` precision.
 pub fn differential_evolution_fit(
     topology: &[Node],
     frequencies: &[f64],
@@ -635,12 +678,10 @@ pub fn differential_evolution_fit(
         lower.iter().zip(&upper).map(|(&lo, &hi)| (lo as f32, hi as f32)).collect();
 
     // Selection across restarts is done with our own f64 residuals(), not the DE
-    // crate's internal f32 cost: a solution with a wildly wrong parameter (e.g. R in
+    // crate's internal f32 cost. A solution with a wildly wrong parameter (e.g. R in
     // a nearly-flat cost direction pushed to an extreme value) can round to the same
-    // -- or even a lower -- f32 cost as the true optimum, so trusting the crate's own
-    // f32 comparison to pick "best across restarts" doesn't reliably prefer the
-    // actually-better f64 solution. This was the real bug behind restarts not
-    // improving reliability the first time this was tried.
+    // or lower f32 cost as the true optimum, so we cannot trust the crate's own
+    // f32 comparison to pick "best across restarts".
     let mut overall_best: Option<(f64, Vec<f64>)> = None;
     let mut total_evaluations = 0u64;
 
@@ -716,11 +757,8 @@ impl Anneal for SaProblem<'_> {
     }
 }
 
-/// Fit via simulated annealing (a stochastic local-neighborhood search that accepts
-/// worse moves with a probability that shrinks as it "cools", letting it escape
-/// shallow local minima that trap plain LM) followed by an LM polish.
-///
-/// `seed`: pass `Some(seed)` for a reproducible run, or `None` to seed from the OS.
+/// Fit via simulated annealing followed by an LM polish.
+/// `seed`: pass `Some(seed)` for a reproducible run.
 #[allow(clippy::too_many_arguments)]
 pub fn simulated_annealing_fit(
     topology: &[Node],
@@ -782,16 +820,8 @@ pub fn simulated_annealing_fit(
     polish_or_fallback(topology, best, iterations, frequencies, z_measured, weighting, &omegas, &weights)
 }
 
-/// Fit via basin-hopping: repeatedly perturb the current point, run a full local LM
-/// fit from there, and accept the result via the Metropolis criterion (always accept
-/// an improvement; accept a worse point with probability `exp(-(new-old)/temperature)`,
-/// letting the search occasionally move "uphill" out of a local minimum). Tracks the
-/// best point seen across every hop, independent of the accept/reject chain, and
-/// returns that regardless of where the chain ends up -- mirrors the structure of
-/// `scipy.optimize.basinhopping` (which is what `impedance.py`'s `global_opt=True`
-/// uses), unlike PSO/DE/NelderMead/SA, which are direct `argmin`/crate solvers.
-///
-/// `seed`: pass `Some(seed)` for a reproducible run, or `None` to seed from the OS.
+/// Fit via basin-hopping: repeated perturbation + LM.
+/// `seed`: pass `Some(seed)` for a reproducible run.
 #[allow(clippy::too_many_arguments)]
 pub fn basin_hopping_fit(
     topology: &[Node],
@@ -971,16 +1001,8 @@ mod tests {
     #[test]
     fn particle_swarm_converges_on_a_hard_multi_branch_topology() {
         // Two correlated R//CPE branches plus a series inductor, fit from a rough
-        // initial guess (both CPE alphas exactly at the 1.0 bound, Q off by orders
-        // of magnitude) -- the kind of multi-modal landscape a global search should
-        // handle robustly regardless of how good the local LM path also happens to be.
-        //
-        // This 8-parameter case turned out to be genuinely hard for PSO -- with an
-        // OS-seeded RNG it sometimes lands in a poor basin even at 200 particles /
-        // 1000 generations. Rather than either leave a flaky test or paper over it
-        // with a loose threshold, this pins a seed so the test is deterministic. The
-        // real cross-check for "is PSO actually reliable enough in practice" is the
-        // benchmark against real data in tests/data/, not this synthetic worst case.
+        // initial guess. A multi-modal landscape that needs a global optimiser to
+        // solve. For PSO it is possible but dependends heavily on the seed.
         let truth = vec![
             Node::Element(Element::L { l: 1e-7 }, None),
             r(0.05),
@@ -1007,9 +1029,7 @@ mod tests {
 
     /// Same Randles-cell scenario as `recovers_randles_cell_from_noise_free_synthetic_data`,
     /// reused across the new solvers below so each test is just "does this method
-    /// actually converge on a moderately hard, realistic topology," not a repeat of
-    /// the harder multi-branch case (that one's reserved for PSO, which already
-    /// proved itself there).
+    /// actually converge on a moderately hard, realistic topology".
     fn randles_case() -> (Series, Series, Vec<f64>, Vec<Complex64>) {
         let truth = vec![
             r(20.0),
@@ -1026,16 +1046,12 @@ mod tests {
         (truth, guess, freqs, z)
     }
 
-    /// Checks impedance-space agreement rather than per-parameter recovery. R1 (the
-    /// charge-transfer resistance, in parallel with the Warburg element) turns out to
-    /// sit in a nearly-flat cost direction across this frequency range specifically --
+    /// Checks impedance-space agreement. R1 turns out to sit in a nearly-flat 
+    /// cost direction across this frequency range specifically --
     /// R0/W/C all converge tightly for every method here, but a global search can
-    /// occasionally drift R1 to an extreme value (seen with differential evolution:
-    /// R1 landing at ~1e100+ across different random seeds) while still reproducing
+    /// occasionally drift R1 to an extreme value while still reproducing
     /// the impedance curve well, since 1/R1 -> 0 just means that branch degenerates
-    /// toward the Warburg element alone. That's a poorly-*identified* parameter given
-    /// this data, not a wrong fit -- matching the earlier lesson from the R//R
-    /// non-identifiability case (see tests/test_fit.py's _make_three_branch_parallel).
+    /// toward the Warburg element alone. Does not mean a bad fit.
     fn assert_recovers_randles(freqs: &[f64], z_measured: &[Complex64], outcome: &FitOutcome) {
         assert!(outcome.success);
         for (&f, &z) in freqs.iter().zip(z_measured) {
@@ -1099,12 +1115,9 @@ mod tests {
 
     #[test]
     fn converges_cleanly_when_initial_guess_sits_exactly_on_a_bound() {
-        // Regression test: a CPE alpha starting at exactly 1.0 (a common, physically
-        // sensible initial guess -- "near-ideal capacitor") used to get pinned to the
-        // *opposite* boundary (alpha=0.0) with the rest of that branch going nonphysical,
-        // because clamping the proposed step desynced the crate's internal predicted-vs-
-        // actual step-quality bookkeeping. LmProblem no longer clamps (or reparametrizes)
-        // during iteration at all, so this should converge to something close to the truth.
+        // LM should still convertge when initial guess is exactly on a bound.
+        // Regression test, as a CPE alpha starting at 1.0 used to break the fit
+        // due to a particular bound clamping method.
         let truth = Node::Element(Element::Cpe { q: 1e-2, alpha: 0.85 }, None);
         let guess = Node::Element(Element::Cpe { q: 1.0, alpha: 1.0 }, None);
         let freqs = log_spaced_freqs(1.0, 1e5, 30);
@@ -1171,23 +1184,12 @@ mod tests {
         ));
     }
 
-    /// Cross-check our hand-written finite-difference Jacobian against the
-    /// levenberg-marquardt crate's own (much slower, debug-oriented) numerical
-    /// differentiation helper -- the crate's own suggested way to validate a
-    /// LeastSquaresProblem::jacobian() implementation.
+    /// Check fasteis finite-difference Jacobian against the levenberg-marquardt
+    /// crate's own (much slower, debug-oriented) numerical differentiation helper.
     #[test]
     fn jacobian_matches_crate_numerical_differentiation() {
-        // Use only R/L elements (dZ/dR = 1, dZ/dL = jw -- both smooth, no 1/x-type
-        // curvature) so this is a clean check of jacobian_columns/DMatrix-assembly
-        // mechanics (column ordering, transposition, etc.), not a numerical-analysis
-        // stress test. A CPE's small Q (real EIS values are ~1e-4 to 1e-6) has such
-        // extreme local curvature near its R-CPE "knee" frequency that naive fixed-step
-        // central differences and the crate's adaptive `differentiate_numerically` (an
-        // entirely different, Richardson-extrapolation-based algorithm, explicitly
-        // documented as "intended for debugging", not as a production reference) can
-        // legitimately disagree at a handful of points -- that's not a bug in either;
-        // the real end-to-end validation for that regime is the LM convergence tests
-        // above, which exercise this exact code path and all converge successfully.
+        // Use only simple elements (R/L) so this is a check of 
+        // jacobian_columns/DMatrix-assembly mechanics.
         let topology =
             vec![r(20.0), Node::Parallel(vec![vec![r(200.0)], vec![Node::Element(Element::L { l: 0.05 }, None)]])];
         let freqs = log_spaced_freqs(1.0, 1e5, 15);
@@ -1197,8 +1199,10 @@ mod tests {
         let bounds = circuit::param_bounds(&topology);
         let p0 = circuit::param_values(&topology);
         let coord = DVector::from_vec(p0.iter().zip(&bounds).map(|(&p, &b)| to_pso_coord(p, b)).collect());
+        let fixed = vec![false; p0.len()];
 
-        let mut problem = LmProblem { topology: &topology, omegas, z_measured: &z_measured, weights, bounds, coord };
+        let mut problem =
+            LmProblem { topology: &topology, omegas, z_measured: &z_measured, weights, bounds, coord, fixed };
 
         let ours = problem.jacobian().unwrap();
         let numerical = levenberg_marquardt::differentiate_numerically(&mut problem).unwrap();
