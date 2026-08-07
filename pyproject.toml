@@ -24,8 +24,5 @@ dev = [
     "pytest>=8.3.5",
     "ruff>=0.15.20",
     "scipy>=1.10",
-]
-# training only; fasteis itself still supports 3.8, torch does not
-ml = [
     "torch>=2.13; python_version >= '3.10'",
 ]
