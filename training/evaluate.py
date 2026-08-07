@@ -158,6 +158,35 @@ def default_init_params(_: priors.Spectrum) -> NDArray[np.float64]:
     return np.array(fasteis.Circuit(circuits.CIRCUIT_STRING).param_values())
 
 
+# every magnitude out by this factor, up or down, and alpha out by this much
+PERTURB_FACTOR = 5.0
+PERTURB_ALPHA = 0.15
+
+
+def make_perturbed_init_params(seed: int = 0) -> InitParams:
+    """Generate perturbed truth intial parameters.
+
+    Each magnitude parameter is multiplied or divided by `PERTURB_FACTOR` at
+    random and alpha shifted by `PERTURB_ALPHA`. Used to represent a reasonable
+    guess at initial values, like may be expected in real world fitting.
+    """
+    rng = np.random.default_rng(seed)
+
+    def perturbed(spectrum: priors.Spectrum) -> NDArray[np.float64]:
+        params = np.array(spectrum.params, dtype=np.float64)
+        signs = rng.choice([-1.0, 1.0], size=circuits.N_PARAMS)
+        params[list(circuits.LOG_PARAMS)] *= (
+            PERTURB_FACTOR ** signs[list(circuits.LOG_PARAMS)]
+        )
+        params[circuits.ALPHA] = np.clip(
+            params[circuits.ALPHA] + signs[circuits.ALPHA] * PERTURB_ALPHA,
+            *circuits.ALPHA_RANGE,
+        )
+        return params
+
+    return perturbed
+
+
 Fitter = Callable[[priors.Spectrum, NDArray[np.float64], fasteis.Circuit], Outcome]
 
 

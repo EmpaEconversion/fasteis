@@ -61,18 +61,28 @@ def main() -> None:
     guess = make_guess_init_params(args.name)
     spectra = evaluate.benchmark_set(args.n)
 
-    floor = evaluate.fit_all(spectra, evaluate.truth_init_params)
-    default = evaluate.fit_all(spectra, evaluate.default_init_params)
-    model = evaluate.fit_all(spectra, guess)
-
-    print(f"{args.n} benchmark spectra, basic LM, model {args.name!r}\n")
-    evaluate.print_table(
-        [
-            evaluate.summarise("FLOOR (truth)", floor, floor),
-            evaluate.summarise("A (defaults)", default, floor),
-            evaluate.summarise("C (model)", model, floor),
+    def table(fitter) -> list[evaluate.Summary]:
+        """Fit every source with one fitter, scored against that fitter's own floor."""
+        sources = [
+            ("floor (truth)", evaluate.truth_init_params),
+            ("library defaults", evaluate.default_init_params),
+            (f"truth x/div {evaluate.PERTURB_FACTOR:.0f}", evaluate.make_perturbed_init_params()),
+            ("ml guess", guess),
         ]
-    )
+        outcomes = [(name, evaluate.fit_all(spectra, fn, fitter)) for name, fn in sources]
+        floor = outcomes[0][1]
+        return [evaluate.summarise(name, o, floor) for name, o in outcomes]
+
+    print(f"{args.n} benchmark spectra, model {args.name!r}")
+    print("\nplain single-start LM\n")
+    plain = table(evaluate.fit_plain_lm)
+    evaluate.print_table(plain)
+
+    print("\nCircuit.fit(), which screens candidate starts and restarts\n")
+    evaluate.print_table(table(evaluate.fit_library))
+
+    floor = evaluate.fit_all(spectra, evaluate.truth_init_params)
+    model = evaluate.fit_all(spectra, guess)
 
     # measured directly rather than inferred by subtraction
     timed = spectra[:200]
@@ -81,25 +91,9 @@ def main() -> None:
         guess(s)
     inference_ms = 1e3 * (time.perf_counter() - t0) / len(timed)
     floor_fit_ms = 1e3 * sum(o.seconds for o in floor) / len(floor)
-    default_fit_ms = 1e3 * sum(o.seconds for o in default) / len(default)
     print(
-        f"\ninference time {inference_ms:.2f} ms/spectrum"
-        f"   (fit from truth {floor_fit_ms:.2f} ms, from defaults {default_fit_ms:.2f} ms)"
-    )
-
-    # secondary: what a user calling the shipped fit() actually sees
-    lib_floor = evaluate.fit_all(spectra, evaluate.truth_init_params, evaluate.fit_library)
-    lib_default = evaluate.fit_all(
-        spectra, evaluate.default_init_params, evaluate.fit_library
-    )
-    lib_model = evaluate.fit_all(spectra, guess, evaluate.fit_library)
-    print("\nsecondary: shipped Circuit.fit(), which screens and restarts internally\n")
-    evaluate.print_table(
-        [
-            evaluate.summarise("FLOOR (truth)", lib_floor, lib_floor),
-            evaluate.summarise("A (defaults)", lib_default, lib_floor),
-            evaluate.summarise("C (model)", lib_model, lib_floor),
-        ]
+        f"\ninference {inference_ms:.2f} ms/spectrum, against {floor_fit_ms:.2f} ms "
+        f"for the fit it starts"
     )
 
     # where are the initial parameters weak?
@@ -128,11 +122,14 @@ def main() -> None:
     # parameter recovery, diagnostic only: which parameter drags the count up
     truth = np.array([s.params for s in spectra])
     starts = np.array([guess(s) for s in spectra])
-    print("\ninitial parameter error before fitting (decades, except alpha which is absolute)")
-    print(f"{'param':<12} {'median':>9} {'p90':>9}")
+    print("\ninitial parameter error before fitting (relative, %)")
+    print(f"{'param':<12} {'median':>9} {'p90':>9} {'p99':>9}")
     for j, name in enumerate(circuits.PARAM_NAMES):
-        err = np.abs(starts[:, j] - truth[:, j]) if j == circuits.ALPHA else np.abs(np.log10(starts[:, j] / truth[:, j]))
-        print(f"{name:<12} {np.median(err):>9.3f} {np.percentile(err, 90):>9.3f}")
+        err = 100.0 * np.abs(starts[:, j] / truth[:, j] - 1.0)
+        print(
+            f"{name:<12} {np.median(err):>9.2f} "
+            f"{np.percentile(err, 90):>9.2f} {np.percentile(err, 99):>9.2f}"
+        )
 
 
 if __name__ == "__main__":
