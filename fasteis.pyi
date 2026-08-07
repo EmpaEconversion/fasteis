@@ -10,6 +10,7 @@ class FitResult:
     stderr: dict[str, float] | None
     success: bool
     iterations: int
+    impedance_evaluations: int
     cost: float
     chi_square: float
 

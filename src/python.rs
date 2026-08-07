@@ -251,7 +251,7 @@ impl Circuit {
         let node = &self.node;
         let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
         let weights = fit::compute_weights(&impedances, weighting);
-        Ok(py.allow_threads(|| fit::residuals(node, &params, &omegas, &impedances, &weights)))
+        Ok(py.allow_threads(|| fit::residuals(node, &params, &omegas, &impedances, &weights, &Default::default())))
     }
 
     /// Central-difference Jacobian of `residuals()` at `params`, shape `(2 *
@@ -272,7 +272,7 @@ impl Circuit {
         let node = &self.node;
         let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
         let weights = fit::compute_weights(&impedances, weighting);
-        let columns = py.allow_threads(|| fit::jacobian_columns(node, &params, &omegas, &impedances, &weights));
+        let columns = py.allow_threads(|| fit::jacobian_columns(node, &params, &omegas, &impedances, &weights, &Default::default()));
         let n_rows = columns.first().map_or(0, Vec::len);
         Ok((0..n_rows).map(|i| columns.iter().map(|col| col[i]).collect()).collect())
     }
@@ -382,6 +382,7 @@ impl Circuit {
             stderr,
             success: outcome.success,
             iterations: outcome.iterations,
+            impedance_evaluations: outcome.impedance_evaluations,
             cost: outcome.cost,
             chi_square: outcome.chi_square,
         })
@@ -414,6 +415,10 @@ pub struct FitResult {
     pub success: bool,
     #[pyo3(get)]
     pub iterations: u64,
+    /// Full impedance sweeps spent, including Jacobians and restarts. A better
+    /// cost measure than `iterations`, which counts residual calls only.
+    #[pyo3(get)]
+    pub impedance_evaluations: u64,
     #[pyo3(get)]
     pub cost: f64,
     #[pyo3(get)]
@@ -424,8 +429,8 @@ pub struct FitResult {
 impl FitResult {
     fn __repr__(&self) -> String {
         format!(
-            "FitResult(success={}, iterations={}, chi_square={:.6e}, params={:?})",
-            self.success, self.iterations, self.chi_square, self.params
+            "FitResult(success={}, iterations={}, impedance_evaluations={}, chi_square={:.6e}, params={:?})",
+            self.success, self.iterations, self.impedance_evaluations, self.chi_square, self.params
         )
     }
 }

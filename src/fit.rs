@@ -8,6 +8,8 @@ use argmin::solver::simulatedannealing::{Anneal, SimulatedAnnealing};
 use differential_evolution::self_adaptive_de;
 use levenberg_marquardt::{LeastSquaresProblem, LevenbergMarquardt};
 use nalgebra::{DMatrix, DVector, Dyn};
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use num_complex::Complex64;
 use rand::{Rng, SeedableRng};
 use rayon::prelude::*;
@@ -34,6 +36,28 @@ impl Default for FitOptions {
     }
 }
 
+/// Counts full impedance sweeps, the unit of work a fit actually spends.
+///
+/// Every sweep goes through `residuals`, so counting there cannot miss one. A
+/// finite-difference Jacobian is `2 * n_params` sweeps and is counted the same way.
+/// Shared across restarts and across the rayon threads inside `jacobian_columns`.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Evaluations(std::sync::Arc<AtomicU64>);
+
+impl Evaluations {
+    fn bump(&self) {
+        self.add(1);
+    }
+
+    fn add(&self, n: u64) {
+        self.0.fetch_add(n, Ordering::Relaxed);
+    }
+
+    fn get(&self) -> u64 {
+        self.0.load(Ordering::Relaxed)
+    }
+}
+
 #[derive(Debug)]
 pub struct FitOutcome {
     pub node: Series,
@@ -41,6 +65,8 @@ pub struct FitOutcome {
     pub params: Vec<f64>,
     pub success: bool,
     pub iterations: u64,
+    /// Full impedance sweeps spent, including Jacobians and restarts.
+    pub impedance_evaluations: u64,
     pub cost: f64,
     pub chi_square: f64,
     pub stderr: Option<Vec<f64>>,
@@ -89,7 +115,9 @@ pub(crate) fn residuals(
     omegas: &[f64],
     z_measured: &[Complex64],
     weights: &[f64],
+    evals: &Evaluations,
 ) -> Vec<f64> {
+    evals.bump();
     let mut r = vec![0.0; 2 * omegas.len()];
     for (i, &omega) in omegas.iter().enumerate() {
         let z = circuit::impedance_with_params(topology, p, omega);
@@ -109,6 +137,7 @@ pub(crate) fn jacobian_columns(
     omegas: &[f64],
     z_measured: &[Complex64],
     weights: &[f64],
+    evals: &Evaluations,
 ) -> Vec<Vec<f64>> {
     (0..p.len())
         .into_par_iter()
@@ -118,8 +147,8 @@ pub(crate) fn jacobian_columns(
             p_plus[j] += h;
             let mut p_minus = p.to_vec();
             p_minus[j] -= h;
-            let r_plus = residuals(topology, &p_plus, omegas, z_measured, weights);
-            let r_minus = residuals(topology, &p_minus, omegas, z_measured, weights);
+            let r_plus = residuals(topology, &p_plus, omegas, z_measured, weights, evals);
+            let r_minus = residuals(topology, &p_minus, omegas, z_measured, weights, evals);
             r_plus.iter().zip(&r_minus).map(|(a, b)| (a - b) / (2.0 * h)).collect()
         })
         .collect()
@@ -130,6 +159,7 @@ pub(crate) fn jacobian_columns(
 /// reusing the same `to_pso_coord`/`from_pso_coord` transform PSO uses -- and raw
 /// physical space for double-bounded ones (alpha/gamma).
 struct LmProblem<'a> {
+    evals: &'a Evaluations,
     topology: &'a [Node],
     omegas: Vec<f64>,
     z_measured: &'a [Complex64],
@@ -162,12 +192,12 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
 
     fn residuals(&self) -> Option<DVector<f64>> {
         let p = self.physical();
-        Some(DVector::from_vec(residuals(self.topology, &p, &self.omegas, self.z_measured, &self.weights)))
+        Some(DVector::from_vec(residuals(self.topology, &p, &self.omegas, self.z_measured, &self.weights, self.evals)))
     }
 
     fn jacobian(&self) -> Option<DMatrix<f64>> {
         let p = self.physical();
-        let cols = jacobian_columns(self.topology, &p, &self.omegas, self.z_measured, &self.weights);
+        let cols = jacobian_columns(self.topology, &p, &self.omegas, self.z_measured, &self.weights, self.evals);
         let m = cols.first()?.len();
         let n = cols.len();
         Some(DMatrix::from_fn(m, n, |i, j| {
@@ -186,6 +216,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
 /// One LM run from a specific starting coordinate vector; returns (params, success,
 /// evaluations). `fixed[j] == true` holds parameter `j` at `start_coord[j]` for the
 /// whole run; pass an all-`false` mask for a normal, fully free run.
+#[allow(clippy::too_many_arguments)] // threading the evaluation counter through
 fn levenberg_marquardt_single_start(
     topology: &[Node],
     omegas: &[f64],
@@ -195,8 +226,10 @@ fn levenberg_marquardt_single_start(
     start_coord: DVector<f64>,
     fixed: &[bool],
     options: &FitOptions,
+    evals: &Evaluations,
 ) -> (Vec<f64>, bool, u64) {
     let problem = LmProblem {
+        evals,
         topology,
         omegas: omegas.to_vec(),
         z_measured,
@@ -245,9 +278,10 @@ fn candidate_starting_points(
     omegas: &[f64],
     z_measured: &[Complex64],
     weights: &[f64],
+    evals: &Evaluations,
 ) -> Vec<Candidate> {
     let screen = |params: Vec<f64>| {
-        let r = residuals(topology, &params, omegas, z_measured, weights);
+        let r = residuals(topology, &params, omegas, z_measured, weights, evals);
         let cost = 0.5 * r.iter().map(|x| x * x).sum::<f64>();
         Candidate { params, screening_cost: cost }
     };
@@ -332,10 +366,11 @@ pub fn levenberg_marquardt_fit(
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
+    let evals = Evaluations::default();
     let bounds = circuit::param_bounds(topology);
     let p0 = circuit::param_values(topology);
 
-    let candidates = candidate_starting_points(topology, &p0, &bounds, &omegas, z_measured, &weights);
+    let candidates = candidate_starting_points(topology, &p0, &bounds, &omegas, z_measured, &weights, &evals);
 
     let mut best: Option<(Vec<f64>, bool, f64)> = None;
     let mut total_evaluations = 0u64;
@@ -354,11 +389,12 @@ pub fn levenberg_marquardt_fit(
             DVector::from_vec(start_coord),
             &no_fixed,
             options,
+            &evals,
         );
         total_evaluations += evaluations;
 
         let cost = {
-            let r = residuals(topology, &params, &omegas, z_measured, &weights);
+            let r = residuals(topology, &params, &omegas, z_measured, &weights, &evals);
             0.5 * r.iter().map(|x| x * x).sum::<f64>()
         };
 
@@ -391,11 +427,12 @@ pub fn levenberg_marquardt_fit(
             DVector::from_vec(start_coord),
             &fixed,
             options,
+            &evals,
         );
         total_evaluations += repolish_evals;
 
         let repolished_cost = {
-            let r = residuals(topology, &repolished, &omegas, z_measured, &weights);
+            let r = residuals(topology, &repolished, &omegas, z_measured, &weights, &evals);
             0.5 * r.iter().map(|x| x * x).sum::<f64>()
         };
         if repolished_success && repolished_cost < cost {
@@ -407,12 +444,13 @@ pub fn levenberg_marquardt_fit(
         (params, success)
     };
 
-    Ok(build_outcome(topology, final_params, final_success, total_evaluations, &omegas, z_measured, &weights))
+    Ok(build_outcome(topology, final_params, final_success, total_evaluations, &omegas, z_measured, &weights, &evals))
 }
 
 /// Assemble a `FitOutcome` from a raw parameter vector: cost/chi_square/stderr
 /// are always recomputed as the params may not come directly from that solver's
 /// own endpoint.
+#[allow(clippy::too_many_arguments)] // threading the evaluation counter through
 fn build_outcome(
     topology: &[Node],
     params: Vec<f64>,
@@ -421,6 +459,7 @@ fn build_outcome(
     omegas: &[f64],
     z_measured: &[Complex64],
     weights: &[f64],
+    evals: &Evaluations,
 ) -> FitOutcome {
     // Final safety clamp into physical bounds as methods can produce a slightly
     // out-of-range value.
@@ -428,13 +467,13 @@ fn build_outcome(
     let params: Vec<f64> = params.into_iter().zip(&bounds).map(|(v, &(lo, hi))| v.clamp(lo, hi)).collect();
 
     let cost = {
-        let r = residuals(topology, &params, omegas, z_measured, weights);
+        let r = residuals(topology, &params, omegas, z_measured, weights, evals);
         0.5 * r.iter().map(|x| x * x).sum::<f64>()
     };
     let chi_square = 2.0 * cost;
 
     let stderr = {
-        let cols = jacobian_columns(topology, &params, omegas, z_measured, weights);
+        let cols = jacobian_columns(topology, &params, omegas, z_measured, weights, evals);
         let m = cols.first().map_or(0, Vec::len);
         let n = cols.len();
         let j = DMatrix::from_fn(m, n, |i, jc| cols[jc][i]);
@@ -456,6 +495,7 @@ fn build_outcome(
         params,
         success,
         iterations,
+        impedance_evaluations: evals.get(),
         cost,
         chi_square,
         stderr,
@@ -477,6 +517,7 @@ fn from_pso_coord(c: f64, (lo, hi): (f64, f64)) -> f64 {
 /// `Param` here is the PSO-coordinate vector (see `to_pso_coord`), converted to
 /// physical parameters via `bounds` before evaluating the model.
 struct PsoProblem<'a> {
+    evals: &'a Evaluations,
     topology: &'a [Node],
     omegas: &'a [f64],
     z_measured: &'a [Complex64],
@@ -490,7 +531,7 @@ impl CostFunction for PsoProblem<'_> {
 
     fn cost(&self, coord: &Vec<f64>) -> Result<f64, argmin::core::Error> {
         let p: Vec<f64> = coord.iter().zip(self.bounds).map(|(&c, &b)| from_pso_coord(c, b)).collect();
-        let r = residuals(self.topology, &p, self.omegas, self.z_measured, self.weights);
+        let r = residuals(self.topology, &p, self.omegas, self.z_measured, self.weights, self.evals);
         Ok(0.5 * r.iter().map(|x| x * x).sum::<f64>())
     }
 }
@@ -539,6 +580,7 @@ pub fn particle_swarm_fit(
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
+    let evals = Evaluations::default();
     let bounds = circuit::param_bounds(topology);
     let guess = circuit::param_values(topology);
     let (lower, upper) = pso_search_box(&bounds, &guess);
@@ -547,7 +589,8 @@ pub fn particle_swarm_fit(
         Some(s) => rand::rngs::StdRng::seed_from_u64(s),
         None => rand::rngs::StdRng::from_os_rng(),
     };
-    let problem = PsoProblem { topology, omegas: &omegas, z_measured, weights: &weights, bounds: &bounds };
+    let problem =
+        PsoProblem { evals: &evals, topology, omegas: &omegas, z_measured, weights: &weights, bounds: &bounds };
     let solver = ParticleSwarm::new((lower, upper), num_particles).with_rng_generator(rng);
 
     let result = Executor::new(problem, solver)
@@ -563,7 +606,7 @@ pub fn particle_swarm_fit(
     let best: Vec<f64> = best_coord.iter().zip(&bounds).map(|(&c, &b)| from_pso_coord(c, b)).collect();
     let pso_evaluations = result.state.get_iter();
 
-    polish_or_fallback(topology, best, pso_evaluations, frequencies, z_measured, weighting, &omegas, &weights)
+    polish_or_fallback(topology, best, pso_evaluations, frequencies, z_measured, weighting, &omegas, &weights, &evals)
 }
 
 /// Polish a candidate parameter vector with local unconstrained LM.
@@ -577,19 +620,32 @@ fn polish_or_fallback(
     weighting: Weighting,
     omegas: &[f64],
     weights: &[f64],
+    evals: &Evaluations,
 ) -> Result<FitOutcome, FitError> {
-    let candidate_outcome =
-        build_outcome(topology, candidate.clone(), true, candidate_iterations, omegas, z_measured, weights);
+    let candidate_outcome = build_outcome(
+        topology,
+        candidate.clone(),
+        true,
+        candidate_iterations,
+        omegas,
+        z_measured,
+        weights,
+        evals,
+    );
 
     let polish_topology = circuit::with_param_values(topology, &candidate);
     let polished =
         levenberg_marquardt_fit(&polish_topology, frequencies, z_measured, weighting, &FitOptions::default())?;
+    // the polish counts separately, so fold its sweeps into the search's total
+    evals.add(polished.impedance_evaluations);
 
-    if polished.cost.is_finite() && polished.cost <= candidate_outcome.cost {
-        Ok(polished)
+    let mut chosen = if polished.cost.is_finite() && polished.cost <= candidate_outcome.cost {
+        polished
     } else {
-        Ok(candidate_outcome)
-    }
+        candidate_outcome
+    };
+    chosen.impedance_evaluations = evals.get();
+    Ok(chosen)
 }
 
 /// Fit via the Nelder-Mead simplex method (derivative-free, local-ish) followed
@@ -613,6 +669,7 @@ pub fn nelder_mead_fit(
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
+    let evals = Evaluations::default();
     let bounds = circuit::param_bounds(topology);
     let guess = circuit::param_values(topology);
     let guess_coord: Vec<f64> = guess.iter().zip(&bounds).map(|(&p, &b)| to_pso_coord(p, b)).collect();
@@ -628,7 +685,8 @@ pub fn nelder_mead_fit(
         simplex.push(point);
     }
 
-    let problem = PsoProblem { topology, omegas: &omegas, z_measured, weights: &weights, bounds: &bounds };
+    let problem =
+        PsoProblem { evals: &evals, topology, omegas: &omegas, z_measured, weights: &weights, bounds: &bounds };
     let solver = NelderMead::new(simplex);
 
     let result = Executor::new(problem, solver)
@@ -644,7 +702,7 @@ pub fn nelder_mead_fit(
     let best: Vec<f64> = best_coord.iter().zip(&bounds).map(|(&c, &b)| from_pso_coord(c, b)).collect();
     let iterations = result.state.get_iter();
 
-    polish_or_fallback(topology, best, iterations, frequencies, z_measured, weighting, &omegas, &weights)
+    polish_or_fallback(topology, best, iterations, frequencies, z_measured, weighting, &omegas, &weights, &evals)
 }
 
 /// Number of independent restarts for `differential_evolution_fit`.
@@ -671,6 +729,7 @@ pub fn differential_evolution_fit(
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
+    let evals = Evaluations::default();
     let bounds = circuit::param_bounds(topology);
     let guess = circuit::param_values(topology);
     let (lower, upper) = pso_search_box(&bounds, &guess);
@@ -691,11 +750,12 @@ pub fn differential_evolution_fit(
         let z_owned = z_measured.to_vec();
         let weights_owned = weights.clone();
         let bounds_owned = bounds.clone();
+        let evals_de = evals.clone();
 
         let mut de = self_adaptive_de(coord_bounds.clone(), move |coord: &[f32]| {
             let p: Vec<f64> =
                 coord.iter().zip(&bounds_owned).map(|(&c, &b)| from_pso_coord(f64::from(c), b)).collect();
-            let r = residuals(&topology_owned, &p, &omegas_owned, &z_owned, &weights_owned);
+            let r = residuals(&topology_owned, &p, &omegas_owned, &z_owned, &weights_owned, &evals_de);
             (0.5 * r.iter().map(|x| x * x).sum::<f64>()) as f32
         });
 
@@ -704,7 +764,7 @@ pub fn differential_evolution_fit(
 
         if let Some((_, coord)) = de.best() {
             let p: Vec<f64> = coord.iter().zip(&bounds).map(|(&c, &b)| from_pso_coord(f64::from(c), b)).collect();
-            let r = residuals(topology, &p, &omegas, z_measured, &weights);
+            let r = residuals(topology, &p, &omegas, z_measured, &weights, &evals);
             let cost_f64 = 0.5 * r.iter().map(|x| x * x).sum::<f64>();
             if overall_best.as_ref().is_none_or(|(best_cost, _)| cost_f64 < *best_cost) {
                 overall_best = Some((cost_f64, p));
@@ -715,7 +775,7 @@ pub fn differential_evolution_fit(
     let (_, best) = overall_best
         .ok_or_else(|| FitError::SolverError("differential evolution found no best position".to_string()))?;
 
-    polish_or_fallback(topology, best, total_evaluations, frequencies, z_measured, weighting, &omegas, &weights)
+    polish_or_fallback(topology, best, total_evaluations, frequencies, z_measured, weighting, &omegas, &weights, &evals)
 }
 
 /// `argmin::core::CostFunction` + `Anneal` adapter for simulated annealing. Shares
@@ -723,6 +783,7 @@ pub fn differential_evolution_fit(
 /// needs its own struct since `Anneal::anneal` requires interior-mutable RNG state
 /// (`&self`, not `&mut self`).
 struct SaProblem<'a> {
+    evals: &'a Evaluations,
     topology: &'a [Node],
     omegas: &'a [f64],
     z_measured: &'a [Complex64],
@@ -737,7 +798,7 @@ impl CostFunction for SaProblem<'_> {
 
     fn cost(&self, coord: &Vec<f64>) -> Result<f64, argmin::core::Error> {
         let p: Vec<f64> = coord.iter().zip(self.bounds).map(|(&c, &b)| from_pso_coord(c, b)).collect();
-        let r = residuals(self.topology, &p, self.omegas, self.z_measured, self.weights);
+        let r = residuals(self.topology, &p, self.omegas, self.z_measured, self.weights, self.evals);
         Ok(0.5 * r.iter().map(|x| x * x).sum::<f64>())
     }
 }
@@ -781,6 +842,7 @@ pub fn simulated_annealing_fit(
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
+    let evals = Evaluations::default();
     let bounds = circuit::param_bounds(topology);
     let guess = circuit::param_values(topology);
     let guess_coord: Vec<f64> = guess.iter().zip(&bounds).map(|(&p, &b)| to_pso_coord(p, b)).collect();
@@ -794,6 +856,7 @@ pub fn simulated_annealing_fit(
         None => rand::rngs::StdRng::from_os_rng(),
     };
     let problem = SaProblem {
+        evals: &evals,
         topology,
         omegas: &omegas,
         z_measured,
@@ -817,7 +880,7 @@ pub fn simulated_annealing_fit(
     let best: Vec<f64> = best_coord.iter().zip(&bounds).map(|(&c, &b)| from_pso_coord(c, b)).collect();
     let iterations = result.state.get_iter();
 
-    polish_or_fallback(topology, best, iterations, frequencies, z_measured, weighting, &omegas, &weights)
+    polish_or_fallback(topology, best, iterations, frequencies, z_measured, weighting, &omegas, &weights, &evals)
 }
 
 /// Fit via basin-hopping: repeated perturbation + LM.
@@ -885,7 +948,8 @@ pub fn basin_hopping_fit(
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
-    Ok(build_outcome(topology, best, true, total_iterations, &omegas, z_measured, &weights))
+    let evals = Evaluations::default();
+    Ok(build_outcome(topology, best, true, total_iterations, &omegas, z_measured, &weights, &evals))
 }
 
 #[cfg(test)]
@@ -929,6 +993,40 @@ mod tests {
 
         assert!(outcome.success);
         assert!((outcome.params[0] - 100.0).abs() < 1e-6, "params={:?}", outcome.params);
+    }
+
+    #[test]
+    fn impedance_evaluations_counts_jacobian_sweeps_not_just_residual_calls() {
+        // A Jacobian is 2 sweeps per parameter, so the count must exceed `iterations`
+        // (residual calls) by roughly that factor. Reporting only `iterations` would
+        // understate the work by about 10x on a 5-parameter circuit.
+        let topology = vec![
+            r(20.0),
+            Node::Parallel(vec![vec![r(200.0)], vec![Node::Element(Element::W { aw: 50.0 }, None)]]),
+        ];
+        let n_params = circuit::param_count(&topology);
+        let freqs: Vec<f64> = (0..40).map(|i| 10f64.powf(-1.0 + 0.2 * f64::from(i))).collect();
+        let z: Vec<Complex64> = freqs.iter().map(|f| circuit::impedance(&topology, TAU * f)).collect();
+
+        let start = circuit::with_param_values(&topology, &[5.0, 40.0, 10.0]);
+        let outcome = levenberg_marquardt_fit(
+            &start,
+            &freqs,
+            &z,
+            Weighting::Modulus,
+            &FitOptions::default(),
+        )
+        .expect("fit should succeed");
+
+        assert!(outcome.impedance_evaluations > outcome.iterations);
+        // one sweep per residual call, plus 2*n_params per Jacobian
+        let per_jacobian = 2 * n_params as u64;
+        assert!(
+            outcome.impedance_evaluations >= outcome.iterations * per_jacobian / 2,
+            "evaluations={} iterations={}",
+            outcome.impedance_evaluations,
+            outcome.iterations
+        );
     }
 
     #[test]
@@ -1200,8 +1298,17 @@ mod tests {
         let coord = DVector::from_vec(p0.iter().zip(&bounds).map(|(&p, &b)| to_pso_coord(p, b)).collect());
         let fixed = vec![false; p0.len()];
 
-        let mut problem =
-            LmProblem { topology: &topology, omegas, z_measured: &z_measured, weights, bounds, coord, fixed };
+        let evals = Evaluations::default();
+        let mut problem = LmProblem {
+            evals: &evals,
+            topology: &topology,
+            omegas,
+            z_measured: &z_measured,
+            weights,
+            bounds,
+            coord,
+            fixed,
+        };
 
         let ours = problem.jacobian().unwrap();
         let numerical = levenberg_marquardt::differentiate_numerically(&mut problem).unwrap();
