@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -182,3 +184,30 @@ def test_a_longer_evaluation_set_extends_the_shorter_one() -> None:
         assert np.array_equal(x.params, y.params)
         assert np.array_equal(x.freqs, y.freqs)
         assert np.array_equal(x.z, y.z)
+
+
+def test_weights_path_reproduces_the_embedded_model() -> None:
+    """`weights=` must give the same answer as the model built into the crate."""
+    weights = Path("src/models/randles.eisnn")
+    if not weights.exists():
+        pytest.skip("no exported weights")
+
+    circuit = fasteis.Circuit("randles")
+    for spectrum in priors.sample_many(np.random.default_rng(8), RANDLES, 20):
+        f, z = list(spectrum.freqs), list(spectrum.z)
+        assert circuit.guess(f, z, weights=str(weights)) == pytest.approx(
+            circuit.guess(f, z), rel=1e-12
+        )
+
+
+def test_weights_trained_for_another_circuit_are_rejected() -> None:
+    """Loading two_rq_l weights into a randles circuit must not silently work."""
+    other = Path("src/models/two_rq_l.eisnn")
+    if not other.exists():
+        pytest.skip("no two_rq_l weights")
+
+    spectrum = priors.sample(np.random.default_rng(6), RANDLES)
+    with pytest.raises(ValueError, match="different circuit"):
+        fasteis.Circuit("randles").guess(
+            list(spectrum.freqs), list(spectrum.z), weights=str(other)
+        )
