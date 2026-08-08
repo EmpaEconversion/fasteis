@@ -74,6 +74,40 @@ fn complex_powf(z: Complex64, exponent: f64) -> Complex64 {
     }
 }
 
+/// `tanh` can overflow if the input is too large.
+/// Fix it to 1 above tanh(20), which is within f64 precision anyway.
+#[inline]
+fn stable_tanh(z: Complex64) -> Complex64 {
+    const SATURATES: f64 = 20.0;
+    if z.re.abs() > SATURATES {
+        Complex64::new(z.re.signum(), 0.0)
+    } else {
+        z.tanh()
+    }
+}
+
+/// `cosh(z)/sinh(z)`, saturating for the same reason as `stable_tanh`.
+#[inline]
+fn stable_coth(z: Complex64) -> Complex64 {
+    const SATURATES: f64 = 20.0;
+    if z.re.abs() > SATURATES {
+        Complex64::new(z.re.signum(), 0.0)
+    } else {
+        z.cosh() / z.sinh()
+    }
+}
+
+/// `1/sinh(z)`, saturates at zero instead of overflowing.
+#[inline]
+fn stable_cosech(z: Complex64) -> Complex64 {
+    const SATURATES: f64 = 20.0;
+    if z.re.abs() > SATURATES {
+        Complex64::new(0.0, 0.0)
+    } else {
+        z.sinh().inv()
+    }
+}
+
 impl Element {
     pub fn impedance(&self, omega: f64) -> Complex64 {
         let j = Complex64::new(0.0, 1.0);
@@ -89,16 +123,16 @@ impl Element {
             }
             Element::Wo { z0, tau } => {
                 let x = (jw * tau).sqrt();
-                z0 / (x * x.tanh())
+                z0 / (x * stable_tanh(x))
             }
             Element::Ws { z0, tau } => {
                 let x = (jw * tau).sqrt();
-                z0 * x.tanh() / x
+                z0 * stable_tanh(x) / x
             }
             Element::G { rg, tg } => rg / (Complex64::new(1.0, 0.0) + jw * tg).sqrt(),
             Element::Gs { rg, tg, phi } => {
                 let s = (Complex64::new(1.0, 0.0) + jw * tg).sqrt();
-                rg / (s * (s * phi).tanh())
+                rg / (s * stable_tanh(s * phi))
             }
             Element::K { r, tau_k } => r / (Complex64::new(1.0, 0.0) + jw * tau_k),
             Element::Zarc { r, tau_k, gamma } => {
@@ -107,7 +141,7 @@ impl Element {
             Element::Tlmq { r_ion, qs, gamma } => {
                 let zs = (qs * complex_powf(jw, gamma)).inv();
                 let y = (r_ion / zs).sqrt();
-                (r_ion * zs).sqrt() / y.tanh()
+                (r_ion * zs).sqrt() / stable_tanh(y)
             }
             Element::T {
                 a_coeff,
@@ -116,7 +150,7 @@ impl Element {
                 b_param,
             } => {
                 let beta = (Complex64::new(a_param, 0.0) + jw * b_param).sqrt();
-                a_coeff * (beta.cosh() / beta.sinh()) / beta + b_coeff / (beta * beta.sinh())
+                a_coeff * stable_coth(beta) / beta + b_coeff * stable_cosech(beta) / beta
             }
         }
     }
@@ -158,13 +192,13 @@ impl Element {
                 let z0 = next();
                 let tau = next();
                 let x = (jw * tau).sqrt();
-                z0 / (x * x.tanh())
+                z0 / (x * stable_tanh(x))
             }
             Element::Ws { .. } => {
                 let z0 = next();
                 let tau = next();
                 let x = (jw * tau).sqrt();
-                z0 * x.tanh() / x
+                z0 * stable_tanh(x) / x
             }
             Element::G { .. } => {
                 let rg = next();
@@ -176,7 +210,7 @@ impl Element {
                 let tg = next();
                 let phi = next();
                 let s = (Complex64::new(1.0, 0.0) + jw * tg).sqrt();
-                rg / (s * (s * phi).tanh())
+                rg / (s * stable_tanh(s * phi))
             }
             Element::K { .. } => {
                 let r = next();
@@ -195,7 +229,7 @@ impl Element {
                 let gamma = next();
                 let zs = (qs * complex_powf(jw, gamma)).inv();
                 let y = (r_ion / zs).sqrt();
-                (r_ion * zs).sqrt() / y.tanh()
+                (r_ion * zs).sqrt() / stable_tanh(y)
             }
             Element::T { .. } => {
                 let a_coeff = next();
@@ -203,7 +237,7 @@ impl Element {
                 let a_param = next();
                 let b_param = next();
                 let beta = (Complex64::new(a_param, 0.0) + jw * b_param).sqrt();
-                a_coeff * (beta.cosh() / beta.sinh()) / beta + b_coeff / (beta * beta.sinh())
+                a_coeff * stable_coth(beta) / beta + b_coeff * stable_cosech(beta) / beta
             }
         }
     }
@@ -696,6 +730,29 @@ mod tests {
                 described.contains(code),
                 "{code} missing from describe_codes() output:\n{described}"
             );
+        }
+    }
+
+    #[test]
+    fn hyperbolic_elements_stay_finite_across_a_wide_sweep() {
+        // sqrt(j w tau) grows without bound with frequency, and the naive
+        // sinh/cosh form of tanh overflows to inf, then inf/inf = NaN.
+        let elements = [
+            Element::Wo { z0: 1.0, tau: 10.0 },
+            Element::Ws { z0: 1.0, tau: 10.0 },
+            Element::Gs { rg: 1.0, tg: 10.0, phi: 5.0 },
+            Element::Tlmq { r_ion: 1.0, qs: 1e-3, gamma: 0.8 },
+            Element::T { a_coeff: 1.0, b_coeff: 1.0, a_param: 1.0, b_param: 10.0 },
+        ];
+        for element in elements {
+            for decade in -6..12 {
+                let omega = 10f64.powi(decade);
+                let z = element.impedance(omega);
+                assert!(
+                    z.re.is_finite() && z.im.is_finite(),
+                    "{element:?} gave {z:?} at omega=1e{decade}"
+                );
+            }
         }
     }
 
