@@ -49,7 +49,6 @@ used in `Circuit,fit()`, which can make bad initial guesses more robust.
 From 2000 synthetic tests, the model inference costs ~0.7 ms.
 
 Plain LM:
-
 | source of initial parameters | converged | excess med | p90 | p99 | med evals |
 |---|---|---|---|---|---|
 | floor (true values) | 100.00% | 0 | 0 | 0 | 5 |
@@ -58,7 +57,6 @@ Plain LM:
 | **ml guess** | **99.95%** | **0** | **1** | **6** | **5** |
 
 `Circuit.fit()` / smart LM:
-
 | source of initial parameters | converged | excess med | p90 | p99 | med evals |
 |---|---|---|---|---|---|
 | floor (true values) | 100.00% | 0 | 0 | 0 | 5 |
@@ -67,12 +65,40 @@ Plain LM:
 | **ml guess** | **99.95%** | **0** | **1** | **6** | **5** |
 
 Relative error of ML guessed parameters:
-
 | | `R0.r` | `CPE1.q` | `CPE1.alpha` | `R1.r` | `W1.aw` |
 |---|---|---|---|---|---|
 | median | 1.1 | 3.3 | 0.6 | 2.9 | 1.4 |
 | p90 | 3.6 | 15.8 | 3.5 | 27.4 | 10.5 |
 | p99 | 44.2 | 58.8 | 12.1 | 157.2 | 42.5 |
+
+### `two_rq_l`
+
+From 2000 synthetic tests. Harder fit, reasonable synthetic results.
+More parameters, could try a larger model.
+
+Plain LM:
+|                    | converged | excess: med |    p90 |    p99 | med evals |
+|--------------------|-----------|-------------|--------|--------|-----------|
+|floor (truth)       |  100.00%  |        0.0  |   0.0  |   0.0  |      6    |
+|library defaults    |    8.25%  |       47.0  |  83.2  | 132.6  |     87    |
+|truth x/div 5       |   51.25%  |       21.0  |  57.0  | 266.4  |     30    |
+|**ml guess**        | **98.55%**|      **1.0**|**12.0**|**55.9**|    **8**  |
+
+`Circuit.fit()` / smart LM
+|                   | converged  | excess: med |     p90 |    p99  | med evals |
+|-------------------|------------|-------------|---------|---------|-----------|
+|floor (truth)      |   100.00%  |        0.0  |    0.0  |    0.0  |       7   |
+|library defaults   |    23.65%  |       86.0  | 2235.4  | 7912.6  |    1110   |
+|truth x/div 5      |    80.25%  |       42.0  |  282.6  | 2110.8  |      72   |
+|ml guess           |  **98.90%**|      **1.0**| **14.0**| **89.5**|     **9** |
+
+Relative error of ML guessed parameters:
+|       |L0.l   |R0.r    |R1.r    |CPE1.q  |CPE1.alpha|R2.r    |CPE2.q  |CPE2.alpha|
+|-------|-------|--------|--------|--------|----------|--------|--------|----------|
+|median |  4.74 |   7.72 |   8.44 |  14.02 |     2.73 |  13.95 |  32.54 |     6.71 |   
+|p90    | 71.96 | 258.34 | 210.69 | 238.97 |    30.77 | 183.92 | 718.59 |     48.72|  
+|p99    | 13.65 |  48.46 |  51.16 |  60.64 |    12.39 |  55.82 | 137.98 |     24.69|
+
 
 ## Training
 
@@ -188,22 +214,9 @@ at the cost of accuracy. For randles, dropping to f16 is reasonable:
 
 ## Adding a circuit
 
-1. Add the circuit string, parameter names and `SCALING` rows to `circuits.py`.
-2. Add a prior sampler in `priors.py` placing features relative to the sweep.
-3. Add a differentiable implementation alongside `randles_torch.py`, with a parity
-   test against `Circuit.impedance()`.
-4. Train, then `export.py --name <name>`, which writes `src/models/<name>.eisnn`.
-5. Add a row to `MODELS` in `src/models.rs` and rebuild.
+1. Create a `TrainingCircuit` class for the circuit in `circuits.py` and add it to the registry
+2. Train with e.g. `training/train.py --circuit=my_new_circuit --steps 10000 --batch 4096 --workers 12`
+3. Export woth `training/export.py --name <name>`, which writes `src/models/<name>.eisnn`.
+4. Add a row to `MODELS` in `src/models.rs` and rebuild.
+5. Benchmark with `training/benchmark.py --n 2000`
 6. Add a results table above.
-
-Model details (e.g. scaling rules) are already stored in the .eisnn for `nn.rs`.
-
-## Training a model
-
-```sh
-uv sync --group ml
-uv run pytest training/tests/
-uv run python training/train.py --steps 20000 --workers 4
-uv run python training/export.py
-uv run python training/benchmark.py --n 2000
-```

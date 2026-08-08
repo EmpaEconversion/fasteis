@@ -51,12 +51,20 @@ impl Model {
     }
 }
 
-static MODELS: [Model; 1] = [Model {
-    name: "randles",
-    circuit: "R0-(CPE1,R1-W1)",
-    bytes: include_bytes!("models/randles.eisnn"),
-    guesser: OnceLock::new(),
-}];
+static MODELS: [Model; 2] = [
+    Model {
+        name: "randles",
+        circuit: "R0-(CPE1,R1-W1)",
+        bytes: include_bytes!("models/randles.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "two_rq_l",
+        circuit: "L0-R0-(R1,CPE1)-(R2,CPE2)",
+        bytes: include_bytes!("models/two_rq_l.eisnn"),
+        guesser: OnceLock::new(),
+    },
+];
 
 /// Every circuit with trained weights, in registry order.
 pub fn all() -> &'static [Model] {

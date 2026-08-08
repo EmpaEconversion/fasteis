@@ -233,7 +233,7 @@ class TrainingTwoRqL(TrainingCircuit):
     def __init__(self) -> None:
         """Init the object."""
         self.name = "two_rq_l"
-        self.circuit_str = "L0-R0-p(R1,CPE1)-p(R2,CPE2)"
+        self.circuit_str = "L0-R0-(R1,CPE1)-(R2,CPE2)"
         self.param_names = (
             "L0.l",
             "R0.r",

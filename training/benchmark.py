@@ -54,11 +54,11 @@ def _bucket_report(
 def main() -> None:
     """Run the benchmark."""
     p = argparse.ArgumentParser()
-    p.add_argument("--circuit", default="randles", help="which trained circuit")
+    p.add_argument("--name", default="randles", help="which trained circuit")
     p.add_argument("--n", type=int, default=2000)
     args = p.parse_args()
 
-    circuit = circuits.get(args.circuit)
+    circuit = circuits.get(args.name)
     guess = make_guess_init_params(circuit.name)
     spectra = evaluate.benchmark_set(circuit, args.n)
 
