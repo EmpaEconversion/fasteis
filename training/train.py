@@ -231,7 +231,13 @@ def main() -> None:
             )
             # Cost only matters if gate passes (i.e. it converges correctly)
             # It doesn't matter if convergense is fast if it is wrong
-            score = (1.0 - summary.converged) * 1e6 + summary.median_excess
+            # p90 breaks ties: two checkpoints often match on convergence and
+            # median excess while differing a lot in the tail
+            score = (
+                (1.0 - summary.converged) * 1e6
+                + summary.median_excess * 1e3
+                + summary.p90_excess
+            )
             if score < best:
                 best = score
                 torch.save(
