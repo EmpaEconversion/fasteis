@@ -136,9 +136,7 @@ def bench_case(case: FitBenchmarkCase, *, include_global: bool) -> None:
         if include_global:
 
             def ipy_basinhopping() -> CustomCircuit:
-                c = CustomCircuit(
-                    case.circuit_string, initial_guess=case.ipy_initial_guess
-                )
+                c = CustomCircuit(case.circuit_string, initial_guess=case.ipy_initial_guess)
                 c.fit(
                     freqs,
                     z,
@@ -149,9 +147,7 @@ def bench_case(case: FitBenchmarkCase, *, include_global: bool) -> None:
                 return c
 
             ipy_bh_ms = _median_ms(ipy_basinhopping, number=1)
-            z_ipy_bh = np.asarray(
-                ipy_basinhopping().predict(freqs), dtype=np.complex128
-            )
+            z_ipy_bh = np.asarray(ipy_basinhopping().predict(freqs), dtype=np.complex128)
             _print_row(
                 "impedance.py (basinhopping)",
                 ipy_bh_ms,
@@ -169,9 +165,7 @@ def bench_case(case: FitBenchmarkCase, *, include_global: bool) -> None:
 
     trf_ms = _median_ms(rust_trf, number=5)
     x_trf = rust_trf()
-    z_trf = np.asarray(
-        circuit.with_values(list(x_trf)).impedance(freqs_list), dtype=np.complex128
-    )
+    z_trf = np.asarray(circuit.with_values(list(x_trf)).impedance(freqs_list), dtype=np.complex128)
     _print_row(
         "rust-math + scipy TRF",
         trf_ms,
@@ -179,14 +173,10 @@ def bench_case(case: FitBenchmarkCase, *, include_global: bool) -> None:
         _max_rel_err(z_trf, z),
     )
 
-    configs = (
-        FAST_EIS_CONFIGS + GLOBAL_EIS_CONFIGS if include_global else FAST_EIS_CONFIGS
-    )
+    configs = FAST_EIS_CONFIGS + GLOBAL_EIS_CONFIGS if include_global else FAST_EIS_CONFIGS
     for suffix, method, kwargs, repeats in configs:
 
-        def eis_fit(
-            method: str = method, kwargs: dict[str, object] = kwargs
-        ) -> fasteis.FitResult:
+        def eis_fit(method: str = method, kwargs: dict[str, object] = kwargs) -> fasteis.FitResult:
             return circuit.fit(freqs_list, list(z), method=method, **kwargs)
 
         fit_ms = _median_ms(eis_fit, number=repeats)
@@ -203,9 +193,7 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_CASE_COUNT,
         help=f"number of cases to run (default {DEFAULT_CASE_COUNT}); ignored with --all",
     )
-    parser.add_argument(
-        "--all", action="store_true", help="run every case in FIT_BENCHMARK_CASES"
-    )
+    parser.add_argument("--all", action="store_true", help="run every case in FIT_BENCHMARK_CASES")
     parser.add_argument(
         "--include-global",
         action="store_true",

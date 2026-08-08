@@ -37,9 +37,7 @@ def _weighted(
     return k, w_c
 
 
-def reactive_centroid(
-    w: NDArray[np.float64], z: NDArray[np.complex128]
-) -> tuple[float, float]:
+def reactive_centroid(w: NDArray[np.float64], z: NDArray[np.complex128]) -> tuple[float, float]:
     """Weights by -sin(phase), bounded in [0, 1] and scale-free.
 
     Points measured in a featureless region carry ~0 weight, so widening the
@@ -49,9 +47,7 @@ def reactive_centroid(
     return _weighted(w, z, u)
 
 
-def imag_weighted(
-    w: NDArray[np.float64], z: NDArray[np.complex128]
-) -> tuple[float, float]:
+def imag_weighted(w: NDArray[np.float64], z: NDArray[np.complex128]) -> tuple[float, float]:
     """Weights by -Im(Z) unnormalised, so the Warburg tail dominates."""
     u = np.clip(-z.imag, 0.0, None)
     return _weighted(w, z, u)

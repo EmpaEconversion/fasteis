@@ -38,9 +38,7 @@ def relative_stderr(
     scaling by the spectrum's sigma turns the Jacobian into real uncertainties.
     """
     j = np.asarray(
-        built.jacobian(
-            list(spectrum.params), list(spectrum.freqs), list(spectrum.z), "modulus"
-        )
+        built.jacobian(list(spectrum.params), list(spectrum.freqs), list(spectrum.z), "modulus")
     )
     try:
         cov = np.linalg.inv(j.T @ j) * spectrum.noise**2
@@ -85,9 +83,7 @@ def main() -> None:
     print(f"sweep width (dec)  median {np.median(decades):6.1f}")
     print(f"noise sigma        median {np.median([s.noise for s in spectra]):6.4f}")
 
-    stderr = np.array(
-        [relative_stderr(circuit, built, s) for s in spectra[:N_JACOBIAN]]
-    )
+    stderr = np.array([relative_stderr(circuit, built, s) for s in spectra[:N_JACOBIAN]])
 
     print(f"\nidentifiability at the true parameters ({N_JACOBIAN} spectra)")
     print(f"{'param':<12} {'median':>9} {'p90':>9} {'unidentifiable':>15}")

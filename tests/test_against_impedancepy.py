@@ -37,9 +37,7 @@ FLAT_CASES: list[tuple[str, ElementParams, FreqArray]] = [
     FLAT_CASES,
     ids=[f"{name}{params}" for name, params, _ in FLAT_CASES],
 )
-def test_element_matches_impedancepy(
-    name: str, params: ElementParams, freqs: FreqArray
-) -> None:
+def test_element_matches_impedancepy(name: str, params: ElementParams, freqs: FreqArray) -> None:
     """Test individual elements."""
     circuit = getattr(fasteis.Circuit, name)(*params)
     got = np.array(circuit.impedance(list(freqs)))
@@ -47,9 +45,7 @@ def test_element_matches_impedancepy(
     np.testing.assert_allclose(got, want, rtol=1e-9, atol=1e-12)
 
 
-@pytest.mark.parametrize(
-    "case", COMPOSITION_CASES, ids=[case.label for case in COMPOSITION_CASES]
-)
+@pytest.mark.parametrize("case", COMPOSITION_CASES, ids=[case.label for case in COMPOSITION_CASES])
 def test_composition_matches_impedancepy(case: CompositionCase) -> None:
     """Test circuits made of several elements."""
     got = np.array(case.eis_circuit.impedance(case.freqs_list))

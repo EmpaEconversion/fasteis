@@ -73,9 +73,7 @@ def main() -> None:
             ),
             ("ml guess", guess),
         ]
-        outcomes = [
-            (name, evaluate.fit_all(circuit, spectra, fn, fitter)) for name, fn in sources
-        ]
+        outcomes = [(name, evaluate.fit_all(circuit, spectra, fn, fitter)) for name, fn in sources]
         floor = outcomes[0][1]
         return [evaluate.summarise(name, o, floor) for name, o in outcomes]
 

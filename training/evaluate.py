@@ -64,9 +64,7 @@ class Outcome:
     seconds: float
 
 
-def _to_free(
-    circuit: TrainingCircuit, params: NDArray[np.float64]
-) -> NDArray[np.float64]:
+def _to_free(circuit: TrainingCircuit, params: NDArray[np.float64]) -> NDArray[np.float64]:
     """Physical -> unconstrained coordinates (log for magnitudes, exponents linear)."""
     log = list(circuit.log_params)
     free = np.array(params, dtype=np.float64)
@@ -74,9 +72,7 @@ def _to_free(
     return free
 
 
-def _to_params(
-    circuit: TrainingCircuit, free: NDArray[np.float64]
-) -> NDArray[np.float64]:
+def _to_params(circuit: TrainingCircuit, free: NDArray[np.float64]) -> NDArray[np.float64]:
     """Inverse of `_to_free`."""
     log = list(circuit.log_params)
     params = np.array(free, dtype=np.float64)
@@ -199,9 +195,7 @@ def make_perturbed_init_params(circuit: TrainingCircuit, seed: int = 0) -> InitP
     return perturbed
 
 
-Fitter = Callable[
-    [TrainingCircuit, priors.Spectrum, NDArray[np.float64], fasteis.Circuit], Outcome
-]
+Fitter = Callable[[TrainingCircuit, priors.Spectrum, NDArray[np.float64], fasteis.Circuit], Outcome]
 
 
 def fit_all(
@@ -228,9 +222,7 @@ class Summary:
     total_seconds: float
 
 
-def summarise(
-    name: str, outcomes: Sequence[Outcome], floor: Sequence[Outcome]
-) -> Summary:
+def summarise(name: str, outcomes: Sequence[Outcome], floor: Sequence[Outcome]) -> Summary:
     """Score one source of initial parameters against FLOOR."""
     evaluations = np.array([o.evaluations for o in outcomes], dtype=float)
     floor_evaluations = np.array([o.evaluations for o in floor], dtype=float)

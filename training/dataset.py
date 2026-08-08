@@ -18,9 +18,7 @@ def encode(
 ) -> tuple[NDArray[np.float32], NDArray[np.float32], NDArray[np.float64]]:
     """Spectrum -> (grid, scalars, normalised targets)."""
     f = features.extract(spectrum.freqs, spectrum.z, estimator)
-    targets = circuit.to_targets(
-        circuit.to_normalised(spectrum.params[None], f.k, f.w_c)
-    )[0]
+    targets = circuit.to_targets(circuit.to_normalised(spectrum.params[None], f.k, f.w_c))[0]
     return (
         f.grid.astype(np.float32),
         f.scalars.astype(np.float32),
@@ -65,9 +63,7 @@ class SpectrumStream(IterableDataset):
 
             for i in range(n):
                 spectrum = priors.sample(rng, self.circuit, self.cfg, built)
-                grids[i], scalars[i], targets[i] = encode(
-                    self.circuit, spectrum, self.estimator
-                )
+                grids[i], scalars[i], targets[i] = encode(self.circuit, spectrum, self.estimator)
 
             yield (
                 torch.from_numpy(grids),

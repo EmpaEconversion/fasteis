@@ -51,9 +51,7 @@ def _targets(
     return circuit.to_targets(circuit.to_normalised(params[None], k, w_c))[0]
 
 
-def _sweeps_around(
-    rng: np.random.Generator, w_arc: float, n: int
-) -> list[NDArray[np.float64]]:
+def _sweeps_around(rng: np.random.Generator, w_arc: float, n: int) -> list[NDArray[np.float64]]:
     """Sweeps that all observe the arc, but differ in width and centre."""
     out = []
     for _ in range(n):
@@ -94,14 +92,13 @@ def run(
         ]
 
         base_f, base_z = spectrum.freqs, spectrum.z_clean
-        draws = [
-            priors._add_noise(rng, base_z, spectrum.noise) for _ in range(N_NOISE)
-        ]
+        draws = [priors._add_noise(rng, base_z, spectrum.noise) for _ in range(N_NOISE)]
 
         for name in names:
             cells[name][i] = _targets(circuit, spectrum.freqs, spectrum.z, params, name)
             sweep[name][i] = np.std(
-                [_targets(circuit, f, z, params, name) for f, z in zip(variants, clean)], axis=0
+                [_targets(circuit, f, z, params, name) for f, z in zip(variants, clean)],
+                axis=0,
             )
             noise[name][i] = np.std(
                 [_targets(circuit, base_f, z, params, name) for z in draws], axis=0

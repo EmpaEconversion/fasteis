@@ -51,10 +51,7 @@ class FitBenchmarkCase:
         may hold many others (see module docstring).
         """
         freqs = self.df[self.freq_column].to_numpy()
-        z = (
-            self.df[self.real_column].to_numpy()
-            + 1j * self.df[self.imag_column].to_numpy()
-        )
+        z = self.df[self.real_column].to_numpy() + 1j * self.df[self.imag_column].to_numpy()
         return freqs, z.astype(np.complex128)
 
 

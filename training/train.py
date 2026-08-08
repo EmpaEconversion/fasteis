@@ -128,9 +128,7 @@ def load_checkpoint(
 
 def evaluate_model(circuit, net, std, device, spectra, floor) -> evaluate.Summary:
     """Score the current network on the held-out set with plain LM."""
-    outcomes = evaluate.fit_all(
-        circuit, spectra, make_guess_init_params(circuit, net, std, device)
-    )
+    outcomes = evaluate.fit_all(circuit, spectra, make_guess_init_params(circuit, net, std, device))
     net.train()
     return evaluate.summarise("model", outcomes, floor)
 
@@ -169,9 +167,7 @@ def main() -> None:
     print(f"  target mean {np.round(mean, 3)}")
     print(f"  target std  {np.round(std_dev, 3)}")
 
-    config = model.Config(
-        channels=args.channels, blocks=args.blocks, head_width=args.head_width
-    )
+    config = model.Config(channels=args.channels, blocks=args.blocks, head_width=args.head_width)
     net = model.GuessNet(circuit.n_params, config).to(device)
     print(f"{circuit.name}: {config}, {model.parameter_count(net):,} weights")
 
@@ -190,18 +186,14 @@ def main() -> None:
     )
 
     eval_spectra = evaluate.validation_set(circuit, args.eval_n)
-    eval_floor = evaluate.fit_all(
-        circuit, eval_spectra, evaluate.truth_init_params(circuit)
-    )
+    eval_floor = evaluate.fit_all(circuit, eval_spectra, evaluate.truth_init_params(circuit))
 
     best = float("inf")
     start = time.perf_counter()
     stream = iter(loader)
 
     for step in range(1, args.steps + 1):
-        grid, scalars, targets = (
-            t.to(device, non_blocking=True) for t in next(stream)
-        )
+        grid, scalars, targets = (t.to(device, non_blocking=True) for t in next(stream))
         target_std = std.encode(targets)
 
         mu, log_var = net(grid, scalars)

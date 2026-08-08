@@ -35,9 +35,7 @@ def test_guess_init_starts_the_fit_from_the_guess() -> None:
 
 def test_guess_init_recovers_the_true_parameters() -> None:
     spectrum = priors.sample(np.random.default_rng(3), RANDLES)
-    result = fasteis.Circuit("randles").fit(
-        list(spectrum.freqs), list(spectrum.z), guess_init=True
-    )
+    result = fasteis.Circuit("randles").fit(list(spectrum.freqs), list(spectrum.z), guess_init=True)
 
     assert result.success
     for name, truth in zip(RANDLES.param_names, spectrum.params, strict=True):
@@ -176,7 +174,10 @@ def test_a_longer_evaluation_set_extends_the_shorter_one() -> None:
     """
     from training import evaluate
 
-    short, long = evaluate.benchmark_set(RANDLES, 10), evaluate.benchmark_set(RANDLES, 40)
+    short, long = (
+        evaluate.benchmark_set(RANDLES, 10),
+        evaluate.benchmark_set(RANDLES, 40),
+    )
     for x, y in zip(short, long[:10], strict=True):
         assert np.array_equal(x.params, y.params)
         assert np.array_equal(x.freqs, y.freqs)

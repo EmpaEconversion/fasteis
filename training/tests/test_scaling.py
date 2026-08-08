@@ -41,9 +41,7 @@ def test_param_names_match_the_rust_circuit() -> None:
 
 @pytest.mark.parametrize("params", PARAM_CASES)
 @pytest.mark.parametrize("estimator", sorted(scales.ESTIMATORS))
-def test_normalise_denormalise_round_trip(
-    params: tuple[float, ...], estimator: str
-) -> None:
+def test_normalise_denormalise_round_trip(params: tuple[float, ...], estimator: str) -> None:
     freqs = _freqs()
     w = TAU * freqs
     z = _impedance(params, freqs)

@@ -63,9 +63,7 @@ class PriorConfig:
 DEFAULT = PriorConfig()
 
 
-def _sweep(
-    rng: np.random.Generator, cfg: PriorConfig
-) -> tuple[NDArray[np.float64], float]:
+def _sweep(rng: np.random.Generator, cfg: PriorConfig) -> tuple[NDArray[np.float64], float]:
     """Draw a frequency sweep; returns (freqs in Hz, window centre in rad/s)."""
     decades = rng.uniform(*cfg.decades)
     log_centre = rng.uniform(*cfg.log_f_centre)

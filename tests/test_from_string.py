@@ -58,7 +58,22 @@ def test_parse_error_lists_syntax_and_available_elements() -> None:
     assert "parallel" in message
     # Every element code is listed so the user can discover valid syntax
     # without consulting external docs.
-    for code in ["R", "C", "L", "La", "CPE", "W", "Wo", "Ws", "G", "Gs", "K", "Zarc", "TLMQ", "T"]:
+    for code in [
+        "R",
+        "C",
+        "L",
+        "La",
+        "CPE",
+        "W",
+        "Wo",
+        "Ws",
+        "G",
+        "Gs",
+        "K",
+        "Zarc",
+        "TLMQ",
+        "T",
+    ]:
         assert code in message
 
 
@@ -68,9 +83,7 @@ def test_from_string_rejects_duplicate_labels() -> None:
 
 
 def test_with_values_sets_params_positionally() -> None:
-    circuit = fasteis.Circuit("R0-p(R1,Cpe1)").with_values(
-        [100.0, 200.0, 3e-4, 0.8]
-    )
+    circuit = fasteis.Circuit("R0-p(R1,Cpe1)").with_values([100.0, 200.0, 3e-4, 0.8])
     assert circuit.param_names() == ["R0.r", "R1.r", "Cpe1.q", "Cpe1.alpha"]
 
     z = np.asarray(circuit.impedance(FREQS), dtype=np.complex128)
@@ -80,9 +93,7 @@ def test_with_values_sets_params_positionally() -> None:
             fasteis.Circuit.parallel([fasteis.Circuit.R(200.0), fasteis.Circuit.CPE(3e-4, 0.8)]),
         ]
     )
-    np.testing.assert_allclose(
-        z, np.asarray(expected.impedance(FREQS), dtype=np.complex128)
-    )
+    np.testing.assert_allclose(z, np.asarray(expected.impedance(FREQS), dtype=np.complex128))
 
 
 def test_with_values_rejects_wrong_length() -> None:
@@ -102,9 +113,7 @@ def test_with_named_values_sets_params_by_label() -> None:
             fasteis.Circuit.parallel([fasteis.Circuit.R(200.0), fasteis.Circuit.CPE(3e-4, 0.8)]),
         ]
     )
-    np.testing.assert_allclose(
-        z, np.asarray(expected.impedance(FREQS), dtype=np.complex128)
-    )
+    np.testing.assert_allclose(z, np.asarray(expected.impedance(FREQS), dtype=np.complex128))
 
 
 def test_with_named_values_rejects_missing_name() -> None:
@@ -127,9 +136,7 @@ def test_with_named_values_rejects_unknown_name() -> None:
 def test_with_named_values_suggests_close_typo() -> None:
     circuit = fasteis.Circuit("R0-p(R1,Cpe1)")
     with pytest.raises(ValueError, match='did you mean "Cpe1.alpha"'):
-        circuit.with_named_values(
-            {"R0.r": 1.0, "R1.r": 2.0, "Cpe1.q": 3e-4, "Cpe1.alph": 0.8}
-        )
+        circuit.with_named_values({"R0.r": 1.0, "R1.r": 2.0, "Cpe1.q": 3e-4, "Cpe1.alph": 0.8})
 
 
 def test_param_units_matches_param_names_length() -> None:
@@ -159,9 +166,7 @@ def test_from_string_circuit_can_be_fit() -> None:
     )
     z = np.asarray(truth.impedance(FREQS), dtype=np.complex128)
 
-    guess = fasteis.Circuit("R0-p(R1,W1)-C1").with_values(
-        [25.0, 150.0, 65.0, 1.3e-5]
-    )
+    guess = fasteis.Circuit("R0-p(R1,W1)-C1").with_values([25.0, 150.0, 65.0, 1.3e-5])
     result = guess.fit(FREQS, list(z))
 
     assert result.success
