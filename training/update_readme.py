@@ -107,6 +107,32 @@ def render_library(every: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
+def render_real_data_test(results: dict) -> str:
+    """Markdown for one circuit's measured-data results."""
+    lines = [
+        f"`{results['circuit']}` against {results['n_spectra']} measured spectra from "
+        f"`{results['data']}`. Ground truth is not known, so 'converged' means within "
+        "tolerance of the best chi-square any strategy reached on that spectrum.",
+        "",
+        "| source of initial parameters | converged | med sweeps | med ms | med chi2 |",
+        "|---|---|---|---|---|",
+    ]
+    for s in results["strategies"]:
+        cells = [
+            s["name"],
+            f"{100 * s['converged']:.2f}%",
+            f"{s['median_sweeps']:.0f}",
+            f"{s['median_ms']:.2f}",
+            f"{s['median_chi_square']:.3e}",
+        ]
+        if "ml" in s["name"]:
+            cells = [f"**{c}**" for c in cells]
+        lines.append("| " + " | ".join(cells) + " |")
+
+    lines += ["", f"<sub>generated {results['generated']} by benchmark_real.py</sub>"]
+    return "\n".join(lines)
+
+
 def substitute(text: str, name: str, body: str) -> tuple[str, bool]:
     """Replace the marked block for one circuit. Returns (text, found)."""
     pattern = re.compile(
@@ -134,11 +160,14 @@ def main() -> None:
             continue
         every[name] = json.loads(path.read_text(encoding="utf-8"))
         text, found = substitute(text, name, render(every[name]))
-        print(
-            f"{name:<15} updated from {path}"
-            if found
-            else f"{name:<15} summary row only"
-        )
+        print(f"{name:<15} updated from {path}" if found else f"{name:<15} summary row only")
+
+        real = args.results / f"{name}_real.json"
+        if real.exists():
+            body = render_real_data_test(json.loads(real.read_text(encoding="utf-8")))
+            text, found = substitute(text, f"{name}_real", body)
+            if found:
+                print(f"{name + '_real':<15} updated from {real}")
 
     if every:
         text, found = substitute(text, "library", render_library(every))
