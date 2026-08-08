@@ -1,7 +1,8 @@
 //! Registry of circuits with trained initial-parameter models.
 
+use std::collections::HashMap;
 use std::mem::discriminant;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 
 use crate::circuit::{Node, Series};
 use crate::nn::{self, NnError};
@@ -116,6 +117,37 @@ fn same_topology(a: &[Node], b: &[Node]) -> bool {
             }
             _ => false,
         })
+}
+
+/// Weights loaded from a path rather than embedded, keyed by that path.
+///
+/// Leaked deliberately: a process compares a handful of model files at most, and a
+/// `&'static` keeps the borrow simple. `topology` is checked so a file trained for a
+/// different circuit cannot be used by accident.
+static EXTERNAL: OnceLock<Mutex<HashMap<String, &'static nn::Guesser>>> = OnceLock::new();
+
+pub fn load_external(path: &str, topology: &[Node]) -> Result<&'static nn::Guesser, NnError> {
+    let cache = EXTERNAL.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().expect("weights cache poisoned");
+
+    let guesser: &'static nn::Guesser = match map.get(path) {
+        Some(g) => g,
+        None => {
+            let loaded: &'static nn::Guesser = Box::leak(Box::new(nn::Guesser::load(path)?));
+            map.insert(path.to_string(), loaded);
+            loaded
+        }
+    };
+
+    let trained = crate::circuit::parse(guesser.circuit())
+        .map_err(|_| NnError::BadValue(format!("circuit {:?} in {path}", guesser.circuit())))?;
+    if !same_topology(&trained, topology) {
+        return Err(NnError::BadValue(format!(
+            "{path} was trained for {:?}, which is a different circuit",
+            guesser.circuit()
+        )));
+    }
+    Ok(guesser)
 }
 
 /// Message for a circuit that has no trained weights.

@@ -17,13 +17,16 @@ fn guess_params(
     node: &[Node],
     frequencies: &[f64],
     impedances: &[Complex64],
+    weights: Option<&str>,
 ) -> PyResult<Vec<f64>> {
-    let model = models::find_for_topology(node)
-        .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?;
-    model
-        .guesser()
-        .and_then(|g| g.guess(frequencies, impedances))
-        .map_err(|e| PyValueError::new_err(e.to_string()))
+    let guesser = match weights {
+        Some(path) => models::load_external(path, node).map_err(|e| PyValueError::new_err(e.to_string()))?,
+        None => models::find_for_topology(node)
+            .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?
+            .guesser()
+            .map_err(|e| PyValueError::new_err(e.to_string()))?,
+    };
+    guesser.guess(frequencies, impedances).map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// Below this many frequency points, rayon's ~20 us overhead outweighs
@@ -196,17 +199,27 @@ impl Circuit {
         models::names()
     }
 
-    /// Machine-learning guess of starting parameters for this circuit's topology,
-    /// in `param_names()` order.
+    /// Machine-learning guess of starting parameters for this circuit's
+    /// topology, in `param_names()` order.
     ///
-    /// Raises if no model has been trained for this topology.
-    fn guess(&self, frequencies: Vec<f64>, impedances: Vec<Complex64>) -> PyResult<Vec<f64>> {
+    /// `weights` loads a `.eisnn` file from disk instead of looking for a
+    /// bundled model.
+    /// 
+    /// Raises if no model has been trained for this topology, or if `weights`
+    /// was trained for a different one.
+    #[pyo3(signature = (frequencies, impedances, weights=None))]
+    fn guess(
+        &self,
+        frequencies: Vec<f64>,
+        impedances: Vec<Complex64>,
+        weights: Option<&str>,
+    ) -> PyResult<Vec<f64>> {
         if frequencies.len() != impedances.len() {
             return Err(PyValueError::new_err(
                 "frequencies and impedances must have the same length",
             ));
         }
-        guess_params(&self.node, &frequencies, &impedances)
+        guess_params(&self.node, &frequencies, &impedances, weights)
     }
 
     /// Parameter names, in the same order `with_values()` consumes and
@@ -369,7 +382,7 @@ impl Circuit {
     }
 
     #[pyo3(signature = (
-        frequencies, impedances, guess_init=false,
+        frequencies, impedances, guess_init=false, weights=None,
         weight="modulus", method="levenberg_marquardt",
         max_iterations=200, ftol=1e-8, xtol=1e-8,
         num_particles=200, generations=1000,
@@ -386,6 +399,7 @@ impl Circuit {
         frequencies: Vec<f64>,
         impedances: Vec<Complex64>,
         guess_init: bool,
+        weights: Option<&str>,
         weight: &str,
         method: &str,
         max_iterations: u32,
@@ -410,7 +424,7 @@ impl Circuit {
         }
 
         let node = if guess_init {
-            let values = guess_params(&self.node, &frequencies, &impedances)?;
+            let values = guess_params(&self.node, &frequencies, &impedances, weights)?;
             circuit::with_param_values(&self.node, &values)
         } else {
             self.node.clone()

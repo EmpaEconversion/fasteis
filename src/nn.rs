@@ -6,7 +6,9 @@
 
 use std::collections::HashMap;
 use std::f64::consts::{PI, TAU};
+use std::fs;
 use std::io;
+use std::path::Path;
 
 use num_complex::Complex64;
 
@@ -208,6 +210,11 @@ fn parse<T: std::str::FromStr>(m: &HashMap<String, String>, key: &str) -> Result
 }
 
 impl Guesser {
+    /// Load a `.eisnn` container from disk.
+    pub fn load(path: impl AsRef<Path>) -> Result<Guesser, NnError> {
+        Self::from_bytes(&fs::read(path)?)
+    }
+
     /// Parse a `.eisnn` container already in memory.
     pub fn from_bytes(bytes: &[u8]) -> Result<Guesser, NnError> {
         let mut r = Reader {
