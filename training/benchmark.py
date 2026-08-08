@@ -26,12 +26,18 @@ import fasteis
 from training import circuits, evaluate, priors
 
 
-def make_guess_init_params(name: str):
-    """Wrap the embedded model as an evaluate.InitParams."""
-    built = fasteis.Circuit(name)
+def make_guess_init_params(circuit_str: str, weights: str | None = None):
+    """Wrap a model as an evaluate.InitParams.
+
+    `weights` loads a `.eisnn` by path, so a circuit that is not yet registered in
+    src/models.rs can still be benchmarked.
+    """
+    built = fasteis.Circuit(circuit_str)
 
     def guess_init_params(spectrum: priors.Spectrum) -> np.ndarray:
-        return np.array(built.guess(list(spectrum.freqs), list(spectrum.z)))
+        return np.array(
+            built.guess(list(spectrum.freqs), list(spectrum.z), weights=weights)
+        )
 
     return guess_init_params
 
@@ -59,6 +65,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--name", default="randles", help="which trained circuit")
     p.add_argument("--n", type=int, default=2000)
+    p.add_argument("--weights", default=None, help="a .eisnn path, else the embedded model")
     p.add_argument(
         "--results",
         type=Path,
@@ -68,7 +75,9 @@ def main() -> None:
     args = p.parse_args()
 
     circuit = circuits.get(args.name)
-    guess = make_guess_init_params(circuit.name)
+    guess = make_guess_init_params(
+        circuit.circuit_str if args.weights else circuit.name, args.weights
+    )
     spectra = evaluate.benchmark_set(circuit, args.n)
 
     def table(fitter) -> list[evaluate.Summary]:
