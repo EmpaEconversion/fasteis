@@ -33,6 +33,10 @@ class Config:
         """One dilation per block, cycling if there are more blocks than entries."""
         return tuple(DILATIONS[i % len(DILATIONS)] for i in range(self.blocks))
 
+    def tag(self) -> str:
+        """Short identifier, so different shapes get separate checkpoints."""
+        return f"c{self.channels}_b{self.blocks}_h{self.head_width}"
+
     def as_dict(self) -> dict[str, int]:
         return asdict(self)
 

@@ -156,7 +156,10 @@ def main() -> None:
     args = p.parse_args()
 
     circuit = circuits.get(args.circuit)
-    args.out = args.out or Path("training/checkpoints") / circuit.name
+    shape = model.Config(
+        channels=args.channels, blocks=args.blocks, head_width=args.head_width
+    )
+    args.out = args.out or Path("training/checkpoints") / f"{circuit.name}_{shape.tag()}"
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
     args.out.mkdir(parents=True, exist_ok=True)
@@ -167,7 +170,7 @@ def main() -> None:
     print(f"  target mean {np.round(mean, 3)}")
     print(f"  target std  {np.round(std_dev, 3)}")
 
-    config = model.Config(channels=args.channels, blocks=args.blocks, head_width=args.head_width)
+    config = shape
     net = model.GuessNet(circuit.n_params, config).to(device)
     print(f"{circuit.name}: {config}, {model.parameter_count(net):,} weights")
 
