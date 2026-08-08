@@ -20,13 +20,17 @@ fn guess_params(
     weights: Option<&str>,
 ) -> PyResult<Vec<f64>> {
     let guesser = match weights {
-        Some(path) => models::load_external(path, node).map_err(|e| PyValueError::new_err(e.to_string()))?,
+        Some(path) => {
+            models::load_external(path, node).map_err(|e| PyValueError::new_err(e.to_string()))?
+        }
         None => models::find_for_topology(node)
             .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?
             .guesser()
             .map_err(|e| PyValueError::new_err(e.to_string()))?,
     };
-    guesser.guess(frequencies, impedances).map_err(|e| PyValueError::new_err(e.to_string()))
+    guesser
+        .guess(frequencies, impedances)
+        .map_err(|e| PyValueError::new_err(e.to_string()))
 }
 
 /// Below this many frequency points, rayon's ~20 us overhead outweighs
@@ -204,7 +208,7 @@ impl Circuit {
     ///
     /// `weights` loads a `.eisnn` file from disk instead of looking for a
     /// bundled model.
-    /// 
+    ///
     /// Raises if no model has been trained for this topology, or if `weights`
     /// was trained for a different one.
     #[pyo3(signature = (frequencies, impedances, weights=None))]

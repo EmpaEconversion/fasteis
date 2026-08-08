@@ -439,8 +439,14 @@ impl Element {
             "R" => Element::R { r: 1.0 },
             "C" => Element::C { c: 1e-3 },
             "L" => Element::L { l: 1e-6 },
-            "La" => Element::La { l: 1e-6, alpha: 0.8 },
-            "Cpe" | "CPE" => Element::Cpe { q: 1e-3, alpha: 0.8 },
+            "La" => Element::La {
+                l: 1e-6,
+                alpha: 0.8,
+            },
+            "Cpe" | "CPE" => Element::Cpe {
+                q: 1e-3,
+                alpha: 0.8,
+            },
             "W" => Element::W { aw: 1.0 },
             // solid-state diffusion takes seconds to minutes for micron particles
             "Wo" => Element::Wo { z0: 1.0, tau: 10.0 },
@@ -451,7 +457,10 @@ impl Element {
                 tg: 1.0,
                 phi: 1.0,
             },
-            "K" => Element::K { r: 1.0, tau_k: 1e-3 },
+            "K" => Element::K {
+                r: 1.0,
+                tau_k: 1e-3,
+            },
             "Zarc" => Element::Zarc {
                 r: 1.0,
                 tau_k: 1e-3,
@@ -739,9 +748,22 @@ mod tests {
         let elements = [
             Element::Wo { z0: 1.0, tau: 10.0 },
             Element::Ws { z0: 1.0, tau: 10.0 },
-            Element::Gs { rg: 1.0, tg: 10.0, phi: 5.0 },
-            Element::Tlmq { r_ion: 1.0, qs: 1e-3, gamma: 0.8 },
-            Element::T { a_coeff: 1.0, b_coeff: 1.0, a_param: 1.0, b_param: 10.0 },
+            Element::Gs {
+                rg: 1.0,
+                tg: 10.0,
+                phi: 5.0,
+            },
+            Element::Tlmq {
+                r_ion: 1.0,
+                qs: 1e-3,
+                gamma: 0.8,
+            },
+            Element::T {
+                a_coeff: 1.0,
+                b_coeff: 1.0,
+                a_param: 1.0,
+                b_param: 10.0,
+            },
         ];
         for element in elements {
             for decade in -6..12 {
