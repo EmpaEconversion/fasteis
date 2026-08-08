@@ -11,8 +11,11 @@ LM tricks for improving convergence, the same as what users will get.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import time
+from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -56,6 +59,12 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--name", default="randles", help="which trained circuit")
     p.add_argument("--n", type=int, default=2000)
+    p.add_argument(
+        "--results",
+        type=Path,
+        default=Path("training/results"),
+        help="where the json goes; update_readme.py renders it",
+    )
     args = p.parse_args()
 
     circuit = circuits.get(args.name)
@@ -83,7 +92,8 @@ def main() -> None:
     evaluate.print_table(plain)
 
     print("\nCircuit.fit(), which screens candidate starts and restarts\n")
-    evaluate.print_table(table(evaluate.fit_library))
+    library = table(evaluate.fit_library)
+    evaluate.print_table(library)
 
     floor = evaluate.fit_all(circuit, spectra, evaluate.truth_init_params(circuit))
     model = evaluate.fit_all(circuit, spectra, guess)
@@ -128,12 +138,38 @@ def main() -> None:
     starts = np.array([guess(s) for s in spectra])
     print("\ninitial parameter error before fitting (relative, %)")
     print(f"{'param':<12} {'median':>9} {'p90':>9} {'p99':>9}")
+    param_error = {}
     for j, name in enumerate(circuit.param_names):
         err = 100.0 * np.abs(starts[:, j] / truth[:, j] - 1.0)
+        param_error[name] = {
+            "median": float(np.median(err)),
+            "p90": float(np.percentile(err, 90)),
+            "p99": float(np.percentile(err, 99)),
+        }
         print(
-            f"{name:<12} {np.median(err):>9.2f} "
-            f"{np.percentile(err, 90):>9.2f} {np.percentile(err, 99):>9.2f}"
+            f"{name:<12} {param_error[name]['median']:>9.2f} "
+            f"{param_error[name]['p90']:>9.2f} {param_error[name]['p99']:>9.2f}"
         )
+
+    weights = Path("src/models") / f"{circuit.name}.eisnn"
+    results = {
+        "circuit": circuit.name,
+        "circuit_str": circuit.circuit_str,
+        "n_spectra": args.n,
+        "generated": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "weights_bytes": weights.stat().st_size if weights.exists() else None,
+        "inference_ms": inference_ms,
+        "floor_fit_ms": floor_fit_ms,
+        "fitters": {
+            "plain_lm": [asdict(row) for row in plain],
+            "circuit_fit": [asdict(row) for row in library],
+        },
+        "param_error_pct": param_error,
+    }
+    args.results.mkdir(parents=True, exist_ok=True)
+    out = args.results / f"{circuit.name}.json"
+    out.write_text(json.dumps(results, indent=2) + "\n", encoding="utf-8")
+    print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":

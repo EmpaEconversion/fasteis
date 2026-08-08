@@ -44,61 +44,68 @@ a reasonable real world guess.
 There are benchmarks for both standard LM, and for the LM with restarting tricks
 used in `Circuit,fit()`, which can make bad initial guesses more robust.
 
+Work is counted in number of impedance sweep evaluations.
+
 ### `randles`
 
-From 2000 synthetic tests, the model inference costs ~0.7 ms.
+<!-- results:randles -->
+`R0-(CPE1,R1-W1)`, 2000 synthetic spectra. Inference costs 0.75 ms/spectrum against 1.18 ms for the fit it starts.
 
 Plain LM:
-| source of initial parameters | converged | excess med | p90 | p99 | med evals |
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
-| floor (true values) | 100.00% | 0 | 0 | 0 | 5 |
-| library defaults | 36.55% | 28 | 62 | 93 | 28 |
-| truth x/div 5 | 70.20% | 9 | 23 | 44 | 14 |
-| **ml guess** | **99.95%** | **0** | **1** | **6** | **5** |
+| floor (truth) | 100.00% | 0 | 0 | 0 | 45 |
+| library defaults | 36.55% | 246 | 563 | 888 | 258 |
+| truth x/div 5 | 70.20% | 79 | 193 | 389 | 124 |
+| **ml guess** | **99.95%** | **10** | **11** | **58** | **45** |
 
-`Circuit.fit()` / smart LM:
-| source of initial parameters | converged | excess med | p90 | p99 | med evals |
+`Circuit.fit()` / smart LM, which screens candidate starts:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
-| floor (true values) | 100.00% | 0 | 0 | 0 | 5 |
-| library defaults | 75.35% | 79 | 302 | 1147 | 118 |
-| truth x/div 5 | 88.45% | 13 | 76 | 393 | 21 |
-| **ml guess** | **99.95%** | **0** | **1** | **6** | **5** |
+| floor (truth) | 100.00% | 0 | 0 | 0 | 66 |
+| library defaults | 75.35% | 711 | 2774 | 11937 | 1078 |
+| truth x/div 5 | 88.45% | 102 | 687 | 3515 | 192 |
+| **ml guess** | **99.95%** | **10** | **12** | **66** | **66** |
 
-Relative error of ML guessed parameters:
+Relative error of the ml guess, before fitting (%):
 | | `R0.r` | `CPE1.q` | `CPE1.alpha` | `R1.r` | `W1.aw` |
 |---|---|---|---|---|---|
 | median | 1.1 | 3.3 | 0.6 | 2.9 | 1.4 |
 | p90 | 3.6 | 15.8 | 3.5 | 27.4 | 10.5 |
 | p99 | 44.2 | 58.8 | 12.1 | 157.2 | 42.5 |
 
+<sub>generated 2026-08-08T12:10:34+00:00 by benchmark.py</sub>
+<!-- /results:randles -->
 ### `two_rq_l`
 
-From 2000 synthetic tests. Harder fit, reasonable synthetic results.
-More parameters, could try a larger model.
+<!-- results:two_rq_l -->
+`L0-R0-(R1,CPE1)-(R2,CPE2)`, 2000 synthetic spectra. Inference costs 0.73 ms/spectrum against 3.11 ms for the fit it starts.
 
 Plain LM:
-|                    | converged | excess: med |    p90 |    p99 | med evals |
-|--------------------|-----------|-------------|--------|--------|-----------|
-|floor (truth)       |  100.00%  |        0.0  |   0.0  |   0.0  |      6    |
-|library defaults    |    8.25%  |       47.0  |  83.2  | 132.6  |     87    |
-|truth x/div 5       |   51.25%  |       21.0  |  57.0  | 266.4  |     30    |
-|**ml guess**        | **98.55%**|      **1.0**|**12.0**|**55.9**|    **8**  |
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 86 |
+| library defaults | 8.20% | 640 | 1131 | 1999 | 1104 |
+| truth x/div 5 | 51.25% | 261 | 777 | 3817 | 382 |
+| **ml guess** | **98.55%** | **17** | **172** | **732** | **120** |
 
-`Circuit.fit()` / smart LM
-|                   | converged  | excess: med |     p90 |    p99  | med evals |
-|-------------------|------------|-------------|---------|---------|-----------|
-|floor (truth)      |   100.00%  |        0.0  |    0.0  |    0.0  |       7   |
-|library defaults   |    23.65%  |       86.0  | 2235.4  | 7912.6  |    1110   |
-|truth x/div 5      |    80.25%  |       42.0  |  282.6  | 2110.8  |      72   |
-|ml guess           |  **98.90%**|      **1.0**| **14.0**| **89.5**|     **9** |
+`Circuit.fit()` / smart LM, which screens candidate starts:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 130 |
+| library defaults | 23.20% | 1077 | 33044 | 122970 | 14916 |
+| truth x/div 5 | 80.20% | 532 | 3875 | 32742 | 949 |
+| **ml guess** | **98.90%** | **17** | **180** | **1427** | **164** |
 
-Relative error of ML guessed parameters:
-|       |L0.l   |R0.r    |R1.r    |CPE1.q  |CPE1.alpha|R2.r    |CPE2.q  |CPE2.alpha|
-|-------|-------|--------|--------|--------|----------|--------|--------|----------|
-|median |  4.74 |   7.72 |   8.44 |  14.02 |     2.73 |  13.95 |  32.54 |     6.71 |   
-|p90    | 71.96 | 258.34 | 210.69 | 238.97 |    30.77 | 183.92 | 718.59 |     48.72|  
-|p99    | 13.65 |  48.46 |  51.16 |  60.64 |    12.39 |  55.82 | 137.98 |     24.69|
+Relative error of the ml guess, before fitting (%):
+| | `L0.l` | `R0.r` | `R1.r` | `CPE1.q` | `CPE1.alpha` | `R2.r` | `CPE2.q` | `CPE2.alpha` |
+|---|---|---|---|---|---|---|---|---|
+| median | 4.7 | 7.7 | 8.4 | 14.0 | 2.7 | 14.0 | 32.5 | 6.7 |
+| p90 | 13.6 | 48.5 | 51.2 | 60.6 | 12.4 | 55.8 | 138.0 | 24.7 |
+| p99 | 72.0 | 258.3 | 210.7 | 239.0 | 30.8 | 183.9 | 718.6 | 48.7 |
 
+<sub>generated 2026-08-08T12:28:52+00:00 by benchmark.py</sub>
+<!-- /results:two_rq_l -->
 
 ## Training
 

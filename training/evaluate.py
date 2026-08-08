@@ -55,7 +55,11 @@ InitParams = Callable[[priors.Spectrum], NDArray[np.float64]]
 
 @dataclass(frozen=True)
 class Outcome:
-    """Result of one fit. `evaluations` is the work measure being minimised."""
+    """Result of one fit.
+
+    `evaluations` counts full impedance sweeps, includes the normal evaluations
+    and Jacobian, which is a central difference over every parameter.
+    """
 
     success: bool
     evaluations: int
@@ -119,7 +123,9 @@ def fit_plain_lm(
     params[linear] = np.clip(params[linear], 0.0, 1.0)
     return Outcome(
         success=bool(result.success),
-        evaluations=int(result.nfev),
+        # scipy counts residual and Jacobian calls separately; a Jacobian is
+        # 2 sweeps per parameter inside Circuit.jacobian()
+        evaluations=int(result.nfev + 2 * circuit.n_params * result.njev),
         cost=float(result.cost),
         params=params,
         seconds=elapsed,
@@ -141,7 +147,7 @@ def fit_library(
 
     return Outcome(
         success=result.success,
-        evaluations=int(result.iterations),
+        evaluations=int(result.impedance_evaluations),
         cost=result.cost,
         params=np.array([result.params[n] for n in circuit.param_names]),
         seconds=elapsed,
@@ -252,14 +258,14 @@ def print_table(summaries: Sequence[Summary]) -> None:
     """Print one row per source."""
     header = (
         f"{'source':<18} {'converged':>11} {'excess: med':>12} {'p90':>7} "
-        f"{'p99':>7} {'med evals':>10} {'seconds':>9}"
+        f"{'p99':>7} {'med sweeps':>11} {'seconds':>9}"
     )
     print(header)
     print("-" * len(header))
     for s in summaries:
         print(
             f"{s.name:<18} {100 * s.converged:>9.2f}% {s.median_excess:>12.1f} "
-            f"{s.p90_excess:>7.1f} {s.p99_excess:>7.1f} {s.median_evaluations:>10.1f} "
+            f"{s.p90_excess:>7.1f} {s.p99_excess:>7.1f} {s.median_evaluations:>11.1f} "
             f"{s.total_seconds:>9.2f}"
         )
 
