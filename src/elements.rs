@@ -430,38 +430,37 @@ impl Element {
             .join("\n")
     }
 
-    /// Build a placeholder-valued element for the given code, used when parsing a
-    /// circuit topology string (which carries no parameter values). Magnitude-like
-    /// fields default to `1.0`; fractional-exponent fields ("alpha"/"gamma") default
-    /// to `0.5`, the midpoint of their `[0, 1]` bound. Accepts both the internal
-    /// `type_tag()` spelling ("Cpe", "Tlmq") and python.rs's static-method spelling
-    /// ("CPE", "TLMQ"), so circuit strings can use either casing.
+    /// Build a placeholder-valued element for the given code, used when parsing
+    /// a circuit topology string (which carries no parameter values).
+    /// Accepts both the internal spelling ("Cpe", "Tlmq") and python.rs's
+    /// static-method spelling ("CPE", "TLMQ").
     pub fn default_for_code(code: &str) -> Option<Element> {
         let element = match code {
             "R" => Element::R { r: 1.0 },
-            "C" => Element::C { c: 1.0 },
-            "L" => Element::L { l: 1.0 },
-            "La" => Element::La { l: 1.0, alpha: 0.5 },
-            "Cpe" | "CPE" => Element::Cpe { q: 1.0, alpha: 0.5 },
+            "C" => Element::C { c: 1e-3 },
+            "L" => Element::L { l: 1e-6 },
+            "La" => Element::La { l: 1e-6, alpha: 0.8 },
+            "Cpe" | "CPE" => Element::Cpe { q: 1e-3, alpha: 0.8 },
             "W" => Element::W { aw: 1.0 },
-            "Wo" => Element::Wo { z0: 1.0, tau: 1.0 },
-            "Ws" => Element::Ws { z0: 1.0, tau: 1.0 },
+            // solid-state diffusion takes seconds to minutes for micron particles
+            "Wo" => Element::Wo { z0: 1.0, tau: 10.0 },
+            "Ws" => Element::Ws { z0: 1.0, tau: 10.0 },
             "G" => Element::G { rg: 1.0, tg: 1.0 },
             "Gs" => Element::Gs {
                 rg: 1.0,
                 tg: 1.0,
                 phi: 1.0,
             },
-            "K" => Element::K { r: 1.0, tau_k: 1.0 },
+            "K" => Element::K { r: 1.0, tau_k: 1e-3 },
             "Zarc" => Element::Zarc {
                 r: 1.0,
-                tau_k: 1.0,
-                gamma: 0.5,
+                tau_k: 1e-3,
+                gamma: 0.8,
             },
             "Tlmq" | "TLMQ" => Element::Tlmq {
                 r_ion: 1.0,
-                qs: 1.0,
-                gamma: 0.5,
+                qs: 1e-3,
+                gamma: 0.8,
             },
             "T" => Element::T {
                 a_coeff: 1.0,
