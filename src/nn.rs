@@ -30,7 +30,11 @@ pub enum NnError {
     BadValue(String),
     UnsupportedEstimator(String),
     UnsupportedDtype(u8),
-    ShapeMismatch { name: String, expected: usize, got: usize },
+    ShapeMismatch {
+        name: String,
+        expected: usize,
+        got: usize,
+    },
     TooFewPoints(usize),
 }
 
@@ -49,9 +53,16 @@ impl std::fmt::Display for NnError {
                 SUPPORTED_ESTIMATORS.join(", ")
             ),
             NnError::UnsupportedDtype(tag) => {
-                write!(f, "weight file uses tensor encoding {tag}, which this build does not know")
+                write!(
+                    f,
+                    "weight file uses tensor encoding {tag}, which this build does not know"
+                )
             }
-            NnError::ShapeMismatch { name, expected, got } => {
+            NnError::ShapeMismatch {
+                name,
+                expected,
+                got,
+            } => {
                 write!(f, "tensor {name:?} has {got} elements, expected {expected}")
             }
             NnError::TooFewPoints(n) => {
@@ -131,7 +142,11 @@ impl<'a> Reader<'a> {
             DTYPE_INT8 => {
                 // scale precedes the payload; symmetric, so no zero point
                 let scale = self.f32()? as f64;
-                Ok(self.take(n)?.iter().map(|&b| b as i8 as f64 * scale).collect())
+                Ok(self
+                    .take(n)?
+                    .iter()
+                    .map(|&b| b as i8 as f64 * scale)
+                    .collect())
             }
             other => Err(NnError::UnsupportedDtype(other)),
         }
@@ -181,17 +196,24 @@ pub struct Guesser {
 }
 
 fn meta<'a>(m: &'a HashMap<String, String>, key: &str) -> Result<&'a str, NnError> {
-    m.get(key).map(String::as_str).ok_or_else(|| NnError::MissingKey(key.to_string()))
+    m.get(key)
+        .map(String::as_str)
+        .ok_or_else(|| NnError::MissingKey(key.to_string()))
 }
 
 fn parse<T: std::str::FromStr>(m: &HashMap<String, String>, key: &str) -> Result<T, NnError> {
-    meta(m, key)?.parse().map_err(|_| NnError::BadValue(key.to_string()))
+    meta(m, key)?
+        .parse()
+        .map_err(|_| NnError::BadValue(key.to_string()))
 }
 
 impl Guesser {
     /// Parse a `.eisnn` container already in memory.
     pub fn from_bytes(bytes: &[u8]) -> Result<Guesser, NnError> {
-        let mut r = Reader { data: bytes, pos: 0 };
+        let mut r = Reader {
+            data: bytes,
+            pos: 0,
+        };
         if r.take(MAGIC.len())? != MAGIC {
             return Err(NnError::BadMagic);
         }
@@ -207,10 +229,17 @@ impl Guesser {
             let name = r.string()?;
             let dtype = r.u8()?;
             let ndim = r.u8()? as usize;
-            let dims: Vec<usize> =
-                (0..ndim).map(|_| r.u32().map(|d| d as usize)).collect::<Result<_, _>>()?;
+            let dims: Vec<usize> = (0..ndim)
+                .map(|_| r.u32().map(|d| d as usize))
+                .collect::<Result<_, _>>()?;
             let count = dims.iter().product::<usize>().max(1);
-            tensors.insert(name, Tensor { dims, data: r.values(dtype, count)? });
+            tensors.insert(
+                name,
+                Tensor {
+                    dims,
+                    data: r.values(dtype, count)?,
+                },
+            );
         }
 
         let take_vec = |name: &str| -> Result<Vec<f64>, NnError> {
@@ -237,12 +266,21 @@ impl Guesser {
         let scaling: Vec<Scaling> = scaling_raw
             .data
             .chunks_exact(4)
-            .map(|c| Scaling { a: c[0], b: c[1], c: c[2], index: c[3].round() as i32 })
+            .map(|c| Scaling {
+                a: c[0],
+                b: c[1],
+                c: c[2],
+                index: c[3].round() as i32,
+            })
             .collect();
 
         let dilations: Vec<usize> = meta(&metadata, "dilations")?
             .split(',')
-            .map(|s| s.trim().parse::<usize>().map_err(|_| NnError::BadValue("dilations".into())))
+            .map(|s| {
+                s.trim()
+                    .parse::<usize>()
+                    .map_err(|_| NnError::BadValue("dilations".into()))
+            })
             .collect::<Result<_, _>>()?;
 
         let estimator = meta(&metadata, "estimator")?.to_string();
@@ -252,13 +290,19 @@ impl Guesser {
 
         Ok(Guesser {
             circuit: meta(&metadata, "circuit")?.to_string(),
-            param_names: meta(&metadata, "param_names")?.split(',').map(str::to_string).collect(),
+            param_names: meta(&metadata, "param_names")?
+                .split(',')
+                .map(str::to_string)
+                .collect(),
             n_grid: parse(&metadata, "n_grid")?,
             channels: parse(&metadata, "channels")?,
             kernel: parse(&metadata, "kernel")?,
             groups: parse(&metadata, "groups")?,
             dilations,
-            alpha_range: (parse(&metadata, "alpha_min")?, parse(&metadata, "alpha_max")?),
+            alpha_range: (
+                parse(&metadata, "alpha_min")?,
+                parse(&metadata, "alpha_max")?,
+            ),
             target_mean,
             target_std,
             log_params,
@@ -278,7 +322,9 @@ impl Guesser {
     }
 
     fn tensor(&self, name: &str) -> Result<&Tensor, NnError> {
-        self.tensors.get(name).ok_or_else(|| NnError::MissingKey(name.to_string()))
+        self.tensors
+            .get(name)
+            .ok_or_else(|| NnError::MissingKey(name.to_string()))
     }
 
     /// Starting parameters for `circuit()`, in `param_names()` order.
@@ -289,7 +335,9 @@ impl Guesser {
         impedances: &[Complex64],
     ) -> Result<Vec<f64>, NnError> {
         if frequencies.len() < 2 || impedances.len() < 2 {
-            return Err(NnError::TooFewPoints(frequencies.len().min(impedances.len())));
+            return Err(NnError::TooFewPoints(
+                frequencies.len().min(impedances.len()),
+            ));
         }
 
         let (k, w_c) = self.scales(frequencies, impedances);
@@ -299,7 +347,11 @@ impl Guesser {
         let mut params = vec![0.0; self.param_names.len()];
         for (i, &m) in mu.iter().enumerate() {
             let target = m * self.target_std[i] + self.target_mean[i];
-            params[i] = if self.log_params[i] { 10f64.powf(target) } else { target };
+            params[i] = if self.log_params[i] {
+                10f64.powf(target)
+            } else {
+                target
+            };
         }
         for (i, log_scaled) in self.log_params.iter().enumerate() {
             if !log_scaled {
@@ -310,8 +362,12 @@ impl Guesser {
         // scale factors read alpha from the normalised vector, where it is invariant
         let normalised = params.clone();
         for (i, s) in self.scaling.iter().enumerate() {
-            let exponent =
-                s.b + if s.index >= 0 { s.c * normalised[s.index as usize] } else { 0.0 };
+            let exponent = s.b
+                + if s.index >= 0 {
+                    s.c * normalised[s.index as usize]
+                } else {
+                    0.0
+                };
             params[i] = normalised[i] * k.powf(s.a) * w_c.powf(exponent);
         }
         Ok(params)
@@ -358,7 +414,10 @@ impl Guesser {
         order.sort_by(|&a, &b| frequencies[a].total_cmp(&frequencies[b]));
 
         let log_f: Vec<f64> = order.iter().map(|&i| frequencies[i].log10()).collect();
-        let log_mag: Vec<f64> = order.iter().map(|&i| impedances[i].norm().log10()).collect();
+        let log_mag: Vec<f64> = order
+            .iter()
+            .map(|&i| impedances[i].norm().log10())
+            .collect();
 
         // unwrapped phase, matching numpy.unwrap
         let mut phase = Vec::with_capacity(order.len());
@@ -376,7 +435,11 @@ impl Guesser {
         }
 
         let (lo, hi) = (log_f[0], log_f[log_f.len() - 1]);
-        let step = if self.n_grid > 1 { (hi - lo) / (self.n_grid - 1) as f64 } else { 0.0 };
+        let step = if self.n_grid > 1 {
+            (hi - lo) / (self.n_grid - 1) as f64
+        } else {
+            0.0
+        };
 
         let mut grid = vec![0.0; 3 * self.n_grid];
         let log_w_c = (w_c / TAU).log10();
@@ -507,7 +570,9 @@ impl Guesser {
         Ok((0..rows)
             .map(|r| {
                 bias.data[r]
-                    + (0..cols).map(|c| weight.data[r * cols + c] * x[c]).sum::<f64>()
+                    + (0..cols)
+                        .map(|c| weight.data[r * cols + c] * x[c])
+                        .sum::<f64>()
             })
             .collect())
     }
@@ -583,6 +648,9 @@ mod tests {
 
     #[test]
     fn rejects_a_file_that_is_not_eisnn() {
-        assert!(matches!(Guesser::from_bytes(b"not a model"), Err(NnError::BadMagic)));
+        assert!(matches!(
+            Guesser::from_bytes(b"not a model"),
+            Err(NnError::BadMagic)
+        ));
     }
 }

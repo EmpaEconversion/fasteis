@@ -2,20 +2,63 @@ use num_complex::Complex64;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Element {
-    R { r: f64 },
-    C { c: f64 },
-    L { l: f64 },
-    La { l: f64, alpha: f64 },
-    Cpe { q: f64, alpha: f64 },
-    W { aw: f64 },
-    Wo { z0: f64, tau: f64 },
-    Ws { z0: f64, tau: f64 },
-    G { rg: f64, tg: f64 },
-    Gs { rg: f64, tg: f64, phi: f64 },
-    K { r: f64, tau_k: f64 },
-    Zarc { r: f64, tau_k: f64, gamma: f64 },
-    Tlmq { r_ion: f64, qs: f64, gamma: f64 },
-    T { a_coeff: f64, b_coeff: f64, a_param: f64, b_param: f64 },
+    R {
+        r: f64,
+    },
+    C {
+        c: f64,
+    },
+    L {
+        l: f64,
+    },
+    La {
+        l: f64,
+        alpha: f64,
+    },
+    Cpe {
+        q: f64,
+        alpha: f64,
+    },
+    W {
+        aw: f64,
+    },
+    Wo {
+        z0: f64,
+        tau: f64,
+    },
+    Ws {
+        z0: f64,
+        tau: f64,
+    },
+    G {
+        rg: f64,
+        tg: f64,
+    },
+    Gs {
+        rg: f64,
+        tg: f64,
+        phi: f64,
+    },
+    K {
+        r: f64,
+        tau_k: f64,
+    },
+    Zarc {
+        r: f64,
+        tau_k: f64,
+        gamma: f64,
+    },
+    Tlmq {
+        r_ion: f64,
+        qs: f64,
+        gamma: f64,
+    },
+    T {
+        a_coeff: f64,
+        b_coeff: f64,
+        a_param: f64,
+        b_param: f64,
+    },
 }
 
 /// `z.powf(exponent)`, special-cased for exponents of 1.0 and 0.5.
@@ -23,9 +66,9 @@ pub enum Element {
 #[inline]
 fn complex_powf(z: Complex64, exponent: f64) -> Complex64 {
     if exponent == 1.0 {
-        z  // skip completey
+        z // skip completey
     } else if exponent == 0.5 {
-        z.sqrt()  // faster shortcut for pure real or pure imaginary z
+        z.sqrt() // faster shortcut for pure real or pure imaginary z
     } else {
         z.powf(exponent)
     }
@@ -41,7 +84,9 @@ impl Element {
             Element::L { l } => l * jw,
             Element::La { l, alpha } => complex_powf(l * jw, alpha),
             Element::Cpe { q, alpha } => (q * complex_powf(jw, alpha)).inv(),
-            Element::W { aw } => aw * (Complex64::new(1.0, 0.0) - j) / Complex64::new(omega.sqrt(), 0.0),
+            Element::W { aw } => {
+                aw * (Complex64::new(1.0, 0.0) - j) / Complex64::new(omega.sqrt(), 0.0)
+            }
             Element::Wo { z0, tau } => {
                 let x = (jw * tau).sqrt();
                 z0 / (x * x.tanh())
@@ -56,13 +101,20 @@ impl Element {
                 rg / (s * (s * phi).tanh())
             }
             Element::K { r, tau_k } => r / (Complex64::new(1.0, 0.0) + jw * tau_k),
-            Element::Zarc { r, tau_k, gamma } => r / (Complex64::new(1.0, 0.0) + complex_powf(jw * tau_k, gamma)),
+            Element::Zarc { r, tau_k, gamma } => {
+                r / (Complex64::new(1.0, 0.0) + complex_powf(jw * tau_k, gamma))
+            }
             Element::Tlmq { r_ion, qs, gamma } => {
                 let zs = (qs * complex_powf(jw, gamma)).inv();
                 let y = (r_ion / zs).sqrt();
                 (r_ion * zs).sqrt() / y.tanh()
             }
-            Element::T { a_coeff, b_coeff, a_param, b_param } => {
+            Element::T {
+                a_coeff,
+                b_coeff,
+                a_param,
+                b_param,
+            } => {
                 let beta = (Complex64::new(a_param, 0.0) + jw * b_param).sqrt();
                 a_coeff * (beta.cosh() / beta.sinh()) / beta + b_coeff / (beta * beta.sinh())
             }
@@ -74,10 +126,17 @@ impl Element {
     /// fixed circuit topology and calculate impedance directly from a parameter
     /// vector. Using `with_values()` + `impedance()` would rebuild the whole
     /// `Element`/`Node` tree every evaluation. Gets a ~5% perf boost.
-    pub fn impedance_from_iter(&self, iter: &mut impl Iterator<Item = f64>, omega: f64) -> Complex64 {
+    pub fn impedance_from_iter(
+        &self,
+        iter: &mut impl Iterator<Item = f64>,
+        omega: f64,
+    ) -> Complex64 {
         let j = Complex64::new(0.0, 1.0);
         let jw = j * omega;
-        let mut next = || iter.next().expect("impedance_from_iter: not enough values supplied");
+        let mut next = || {
+            iter.next()
+                .expect("impedance_from_iter: not enough values supplied")
+        };
         match *self {
             Element::R { .. } => Complex64::new(next(), 0.0),
             Element::C { .. } => Complex64::new(1.0, 0.0) / (next() * jw),
@@ -92,7 +151,9 @@ impl Element {
                 let alpha = next();
                 (q * complex_powf(jw, alpha)).inv()
             }
-            Element::W { .. } => next() * (Complex64::new(1.0, 0.0) - j) / Complex64::new(omega.sqrt(), 0.0),
+            Element::W { .. } => {
+                next() * (Complex64::new(1.0, 0.0) - j) / Complex64::new(omega.sqrt(), 0.0)
+            }
             Element::Wo { .. } => {
                 let z0 = next();
                 let tau = next();
@@ -207,7 +268,12 @@ impl Element {
             Element::K { r, tau_k } => vec![r, tau_k],
             Element::Zarc { r, tau_k, gamma } => vec![r, tau_k, gamma],
             Element::Tlmq { r_ion, qs, gamma } => vec![r_ion, qs, gamma],
-            Element::T { a_coeff, b_coeff, a_param, b_param } => vec![a_coeff, b_coeff, a_param, b_param],
+            Element::T {
+                a_coeff,
+                b_coeff,
+                a_param,
+                b_param,
+            } => vec![a_coeff, b_coeff, a_param, b_param],
         }
     }
 
@@ -217,19 +283,52 @@ impl Element {
             Element::R { .. } => Element::R { r: values[0] },
             Element::C { .. } => Element::C { c: values[0] },
             Element::L { .. } => Element::L { l: values[0] },
-            Element::La { .. } => Element::La { l: values[0], alpha: values[1] },
-            Element::Cpe { .. } => Element::Cpe { q: values[0], alpha: values[1] },
+            Element::La { .. } => Element::La {
+                l: values[0],
+                alpha: values[1],
+            },
+            Element::Cpe { .. } => Element::Cpe {
+                q: values[0],
+                alpha: values[1],
+            },
             Element::W { .. } => Element::W { aw: values[0] },
-            Element::Wo { .. } => Element::Wo { z0: values[0], tau: values[1] },
-            Element::Ws { .. } => Element::Ws { z0: values[0], tau: values[1] },
-            Element::G { .. } => Element::G { rg: values[0], tg: values[1] },
-            Element::Gs { .. } => Element::Gs { rg: values[0], tg: values[1], phi: values[2] },
-            Element::K { .. } => Element::K { r: values[0], tau_k: values[1] },
-            Element::Zarc { .. } => Element::Zarc { r: values[0], tau_k: values[1], gamma: values[2] },
-            Element::Tlmq { .. } => Element::Tlmq { r_ion: values[0], qs: values[1], gamma: values[2] },
-            Element::T { .. } => {
-                Element::T { a_coeff: values[0], b_coeff: values[1], a_param: values[2], b_param: values[3] }
-            }
+            Element::Wo { .. } => Element::Wo {
+                z0: values[0],
+                tau: values[1],
+            },
+            Element::Ws { .. } => Element::Ws {
+                z0: values[0],
+                tau: values[1],
+            },
+            Element::G { .. } => Element::G {
+                rg: values[0],
+                tg: values[1],
+            },
+            Element::Gs { .. } => Element::Gs {
+                rg: values[0],
+                tg: values[1],
+                phi: values[2],
+            },
+            Element::K { .. } => Element::K {
+                r: values[0],
+                tau_k: values[1],
+            },
+            Element::Zarc { .. } => Element::Zarc {
+                r: values[0],
+                tau_k: values[1],
+                gamma: values[2],
+            },
+            Element::Tlmq { .. } => Element::Tlmq {
+                r_ion: values[0],
+                qs: values[1],
+                gamma: values[2],
+            },
+            Element::T { .. } => Element::T {
+                a_coeff: values[0],
+                b_coeff: values[1],
+                a_param: values[2],
+                b_param: values[3],
+            },
         }
     }
 
@@ -271,8 +370,9 @@ impl Element {
     /// (e.g. "CPE" not "Cpe", "TLMQ" not "Tlmq"), since that's the spelling users
     /// see everywhere else. `default_for_code` also accepts the lowercase-tail
     /// variants ("Cpe", "Tlmq") for backward compatibility with older strings.
-    pub const CODES: &'static [&'static str] =
-        &["R", "C", "L", "La", "CPE", "W", "Wo", "Ws", "G", "Gs", "K", "Zarc", "TLMQ", "T"];
+    pub const CODES: &'static [&'static str] = &[
+        "R", "C", "L", "La", "CPE", "W", "Wo", "Ws", "G", "Gs", "K", "Zarc", "TLMQ", "T",
+    ];
 
     /// One line per known element code: the code, then each parameter name and
     /// unit. Used to help users discover valid circuit-string syntax after a
@@ -282,7 +382,8 @@ impl Element {
         Element::CODES
             .iter()
             .map(|&code| {
-                let element = Element::default_for_code(code).expect("Element::CODES entries must all be valid");
+                let element = Element::default_for_code(code)
+                    .expect("Element::CODES entries must all be valid");
                 let params: Vec<String> = element
                     .param_names()
                     .iter()
@@ -312,11 +413,28 @@ impl Element {
             "Wo" => Element::Wo { z0: 1.0, tau: 1.0 },
             "Ws" => Element::Ws { z0: 1.0, tau: 1.0 },
             "G" => Element::G { rg: 1.0, tg: 1.0 },
-            "Gs" => Element::Gs { rg: 1.0, tg: 1.0, phi: 1.0 },
+            "Gs" => Element::Gs {
+                rg: 1.0,
+                tg: 1.0,
+                phi: 1.0,
+            },
             "K" => Element::K { r: 1.0, tau_k: 1.0 },
-            "Zarc" => Element::Zarc { r: 1.0, tau_k: 1.0, gamma: 0.5 },
-            "Tlmq" | "TLMQ" => Element::Tlmq { r_ion: 1.0, qs: 1.0, gamma: 0.5 },
-            "T" => Element::T { a_coeff: 1.0, b_coeff: 1.0, a_param: 1.0, b_param: 1.0 },
+            "Zarc" => Element::Zarc {
+                r: 1.0,
+                tau_k: 1.0,
+                gamma: 0.5,
+            },
+            "Tlmq" | "TLMQ" => Element::Tlmq {
+                r_ion: 1.0,
+                qs: 1.0,
+                gamma: 0.5,
+            },
+            "T" => Element::T {
+                a_coeff: 1.0,
+                b_coeff: 1.0,
+                a_param: 1.0,
+                b_param: 1.0,
+            },
             _ => return None,
         };
         Some(element)
@@ -338,8 +456,8 @@ mod tests {
         let zs = [
             Complex64::new(3.0, 4.0),
             Complex64::new(-2.0, 7.5),
-            Complex64::new(0.0, 1e-3),   // jw at a small omega
-            Complex64::new(0.0, 1e6),    // jw at a large omega
+            Complex64::new(0.0, 1e-3), // jw at a small omega
+            Complex64::new(0.0, 1e6),  // jw at a large omega
             Complex64::new(-1.0, -1.0),
         ];
         for &z in &zs {
@@ -403,8 +521,15 @@ mod tests {
 
     #[test]
     fn zarc_matches_k_at_gamma_one() {
-        let zarc = Element::Zarc { r: 20.0, tau_k: 0.5, gamma: 1.0 };
-        let k = Element::K { r: 20.0, tau_k: 0.5 };
+        let zarc = Element::Zarc {
+            r: 20.0,
+            tau_k: 0.5,
+            gamma: 1.0,
+        };
+        let k = Element::K {
+            r: 20.0,
+            tau_k: 0.5,
+        };
         assert_close(zarc.impedance(10.0), k.impedance(10.0), 1e-9);
     }
 
@@ -414,7 +539,12 @@ mod tests {
         let ws = Element::Ws { z0: 1.0, tau: 1.0 };
         let zo = wo.impedance(1.0);
         let zs = ws.impedance(1.0);
-        assert!((zo - zs).norm() > 1e-6, "Wo and Ws must not coincide: {:?} vs {:?}", zo, zs);
+        assert!(
+            (zo - zs).norm() > 1e-6,
+            "Wo and Ws must not coincide: {:?} vs {:?}",
+            zo,
+            zs
+        );
 
         // Reference values computed independently via Python:
         //   x = cmath.sqrt(1j*1.0*1.0)
@@ -425,11 +555,20 @@ mod tests {
 
     #[test]
     fn t_and_tlmq_are_finite() {
-        let t = Element::T { a_coeff: 1.0, b_coeff: 2.0, a_param: 0.5, b_param: 0.1 };
+        let t = Element::T {
+            a_coeff: 1.0,
+            b_coeff: 2.0,
+            a_param: 0.5,
+            b_param: 0.1,
+        };
         let z = t.impedance(10.0);
         assert!(z.re.is_finite() && z.im.is_finite());
 
-        let tlmq = Element::Tlmq { r_ion: 5.0, qs: 1e-4, gamma: 0.8 };
+        let tlmq = Element::Tlmq {
+            r_ion: 5.0,
+            qs: 1e-4,
+            gamma: 0.8,
+        };
         let z2 = tlmq.impedance(10.0);
         assert!(z2.re.is_finite() && z2.im.is_finite());
     }
@@ -441,16 +580,39 @@ mod tests {
             Element::C { c: 1e-6 },
             Element::L { l: 2.0 },
             Element::La { l: 4.0, alpha: 0.9 },
-            Element::Cpe { q: 3.0, alpha: 0.85 },
+            Element::Cpe {
+                q: 3.0,
+                alpha: 0.85,
+            },
             Element::W { aw: 1.0 },
             Element::Wo { z0: 1.0, tau: 1.0 },
             Element::Ws { z0: 1.0, tau: 1.0 },
             Element::G { rg: 10.0, tg: 0.5 },
-            Element::Gs { rg: 10.0, tg: 0.5, phi: 0.3 },
-            Element::K { r: 20.0, tau_k: 0.5 },
-            Element::Zarc { r: 20.0, tau_k: 0.5, gamma: 0.9 },
-            Element::Tlmq { r_ion: 5.0, qs: 1e-4, gamma: 0.8 },
-            Element::T { a_coeff: 1.0, b_coeff: 2.0, a_param: 0.5, b_param: 0.1 },
+            Element::Gs {
+                rg: 10.0,
+                tg: 0.5,
+                phi: 0.3,
+            },
+            Element::K {
+                r: 20.0,
+                tau_k: 0.5,
+            },
+            Element::Zarc {
+                r: 20.0,
+                tau_k: 0.5,
+                gamma: 0.9,
+            },
+            Element::Tlmq {
+                r_ion: 5.0,
+                qs: 1e-4,
+                gamma: 0.8,
+            },
+            Element::T {
+                a_coeff: 1.0,
+                b_coeff: 2.0,
+                a_param: 0.5,
+                b_param: 0.1,
+            },
         ];
         for e in samples {
             assert_eq!(e.param_names().len(), e.values().len());
@@ -465,16 +627,39 @@ mod tests {
             Element::C { c: 1e-6 },
             Element::L { l: 2.0 },
             Element::La { l: 4.0, alpha: 0.9 },
-            Element::Cpe { q: 3.0, alpha: 0.85 },
+            Element::Cpe {
+                q: 3.0,
+                alpha: 0.85,
+            },
             Element::W { aw: 1.0 },
             Element::Wo { z0: 1.0, tau: 1.0 },
             Element::Ws { z0: 1.0, tau: 1.0 },
             Element::G { rg: 10.0, tg: 0.5 },
-            Element::Gs { rg: 10.0, tg: 0.5, phi: 0.3 },
-            Element::K { r: 20.0, tau_k: 0.5 },
-            Element::Zarc { r: 20.0, tau_k: 0.5, gamma: 0.9 },
-            Element::Tlmq { r_ion: 5.0, qs: 1e-4, gamma: 0.8 },
-            Element::T { a_coeff: 1.0, b_coeff: 2.0, a_param: 0.5, b_param: 0.1 },
+            Element::Gs {
+                rg: 10.0,
+                tg: 0.5,
+                phi: 0.3,
+            },
+            Element::K {
+                r: 20.0,
+                tau_k: 0.5,
+            },
+            Element::Zarc {
+                r: 20.0,
+                tau_k: 0.5,
+                gamma: 0.9,
+            },
+            Element::Tlmq {
+                r_ion: 5.0,
+                qs: 1e-4,
+                gamma: 0.8,
+            },
+            Element::T {
+                a_coeff: 1.0,
+                b_coeff: 2.0,
+                a_param: 0.5,
+                b_param: 0.1,
+            },
         ];
         for e in samples {
             assert_eq!(e.param_units().len(), e.param_names().len());
@@ -484,16 +669,33 @@ mod tests {
     #[test]
     fn param_units_exact_values() {
         assert_eq!(Element::R { r: 1.0 }.param_units(), &["ohm"]);
-        assert_eq!(Element::Cpe { q: 1.0, alpha: 0.5 }.param_units(), &["ohm^-1*s^alpha", "-"]);
-        assert_eq!(Element::Zarc { r: 1.0, tau_k: 1.0, gamma: 0.5 }.param_units(), &["ohm", "s", "-"]);
+        assert_eq!(
+            Element::Cpe { q: 1.0, alpha: 0.5 }.param_units(),
+            &["ohm^-1*s^alpha", "-"]
+        );
+        assert_eq!(
+            Element::Zarc {
+                r: 1.0,
+                tau_k: 1.0,
+                gamma: 0.5
+            }
+            .param_units(),
+            &["ohm", "s", "-"]
+        );
     }
 
     #[test]
     fn every_code_is_a_valid_default_for_code_and_appears_in_describe_codes() {
         let described = Element::describe_codes();
         for &code in Element::CODES {
-            assert!(Element::default_for_code(code).is_some(), "{code} has no default_for_code entry");
-            assert!(described.contains(code), "{code} missing from describe_codes() output:\n{described}");
+            assert!(
+                Element::default_for_code(code).is_some(),
+                "{code} has no default_for_code entry"
+            );
+            assert!(
+                described.contains(code),
+                "{code} missing from describe_codes() output:\n{described}"
+            );
         }
     }
 
@@ -502,14 +704,29 @@ mod tests {
         let cpe = Element::Cpe { q: 3.0, alpha: 0.5 };
         assert_eq!(cpe.param_bounds(), vec![(1e-12, f64::INFINITY), (0.0, 1.0)]);
 
-        let zarc = Element::Zarc { r: 1.0, tau_k: 1.0, gamma: 0.5 };
-        assert_eq!(zarc.param_bounds(), vec![(1e-12, f64::INFINITY), (1e-12, f64::INFINITY), (0.0, 1.0)]);
+        let zarc = Element::Zarc {
+            r: 1.0,
+            tau_k: 1.0,
+            gamma: 0.5,
+        };
+        assert_eq!(
+            zarc.param_bounds(),
+            vec![(1e-12, f64::INFINITY), (1e-12, f64::INFINITY), (0.0, 1.0)]
+        );
 
         // Gs.phi is a tanh-argument scale factor, not a fractional exponent -- must not be unit-clamped.
-        let gs = Element::Gs { rg: 1.0, tg: 1.0, phi: 0.5 };
+        let gs = Element::Gs {
+            rg: 1.0,
+            tg: 1.0,
+            phi: 0.5,
+        };
         assert_eq!(
             gs.param_bounds(),
-            vec![(1e-12, f64::INFINITY), (1e-12, f64::INFINITY), (1e-12, f64::INFINITY)]
+            vec![
+                (1e-12, f64::INFINITY),
+                (1e-12, f64::INFINITY),
+                (1e-12, f64::INFINITY)
+            ]
         );
     }
 }

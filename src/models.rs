@@ -18,7 +18,10 @@ pub struct Model {
 impl Model {
     /// Parse the embedded weights, once per process.
     pub fn guesser(&self) -> Result<&nn::Guesser, NnError> {
-        match self.guesser.get_or_init(|| self.parse_and_check().map_err(|e| e.to_string())) {
+        match self
+            .guesser
+            .get_or_init(|| self.parse_and_check().map_err(|e| e.to_string()))
+        {
             Ok(g) => Ok(g),
             Err(message) => Err(NnError::BadValue(message.clone())),
         }
@@ -80,7 +83,10 @@ pub fn names() -> Vec<&'static str> {
 /// `Circuit::new` then treats as a topology string.
 pub fn resolve_alias(name: &str) -> Option<&'static str> {
     let trimmed = name.trim();
-    all().iter().find(|m| m.name.eq_ignore_ascii_case(trimmed)).map(|m| m.circuit)
+    all()
+        .iter()
+        .find(|m| m.name.eq_ignore_ascii_case(trimmed))
+        .map(|m| m.circuit)
 }
 
 /// The model trained for `topology`, if there is one.
@@ -103,7 +109,10 @@ fn same_topology(a: &[Node], b: &[Node]) -> bool {
             (Node::Element(ea, _), Node::Element(eb, _)) => discriminant(ea) == discriminant(eb),
             (Node::Parallel(ba), Node::Parallel(bb)) => {
                 ba.len() == bb.len()
-                    && ba.iter().zip(bb).all(|(s, t): (&Series, &Series)| same_topology(s, t))
+                    && ba
+                        .iter()
+                        .zip(bb)
+                        .all(|(s, t): (&Series, &Series)| same_topology(s, t))
             }
             _ => false,
         })
@@ -111,7 +120,11 @@ fn same_topology(a: &[Node], b: &[Node]) -> bool {
 
 /// Message for a circuit that has no trained weights.
 pub fn describe_missing() -> String {
-    let available = names().iter().map(|n| format!("'{n}'")).collect::<Vec<_>>().join(", ");
+    let available = names()
+        .iter()
+        .map(|n| format!("'{n}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
     format!(
         "No training data on this circuit. \
          Machine-learning based initial parameters available for {available}"
@@ -131,7 +144,10 @@ mod tests {
 
             let topology = parse(model.circuit).expect("registry circuit must parse");
             assert!(std::ptr::eq(find_for_topology(&topology).unwrap(), model));
-            assert_eq!(guesser.param_names(), crate::circuit::param_names(&topology));
+            assert_eq!(
+                guesser.param_names(),
+                crate::circuit::param_names(&topology)
+            );
         }
     }
 

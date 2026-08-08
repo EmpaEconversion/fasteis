@@ -25,8 +25,10 @@ fn node_impedance(node: &Node, omega: f64) -> Complex64 {
     match node {
         Node::Element(e, _) => e.impedance(omega),
         Node::Parallel(branches) => {
-            let sum_inv: Complex64 =
-                branches.iter().map(|branch| Complex64::new(1.0, 0.0) / impedance(branch, omega)).sum();
+            let sum_inv: Complex64 = branches
+                .iter()
+                .map(|branch| Complex64::new(1.0, 0.0) / impedance(branch, omega))
+                .sum();
             Complex64::new(1.0, 0.0) / sum_inv
         }
     }
@@ -38,21 +40,37 @@ fn node_impedance(node: &Node, omega: f64) -> Complex64 {
 pub fn impedance_with_params(series: &[Node], params: &[f64], omega: f64) -> Complex64 {
     let mut iter = params.iter().copied();
     let z = series_impedance_with_params(series, &mut iter, omega);
-    debug_assert!(iter.next().is_none(), "impedance_with_params: too many values supplied");
+    debug_assert!(
+        iter.next().is_none(),
+        "impedance_with_params: too many values supplied"
+    );
     z
 }
 
-fn series_impedance_with_params(series: &[Node], iter: &mut impl Iterator<Item = f64>, omega: f64) -> Complex64 {
-    series.iter().map(|node| node_impedance_with_params(node, iter, omega)).sum()
+fn series_impedance_with_params(
+    series: &[Node],
+    iter: &mut impl Iterator<Item = f64>,
+    omega: f64,
+) -> Complex64 {
+    series
+        .iter()
+        .map(|node| node_impedance_with_params(node, iter, omega))
+        .sum()
 }
 
-fn node_impedance_with_params(node: &Node, iter: &mut impl Iterator<Item = f64>, omega: f64) -> Complex64 {
+fn node_impedance_with_params(
+    node: &Node,
+    iter: &mut impl Iterator<Item = f64>,
+    omega: f64,
+) -> Complex64 {
     match node {
         Node::Element(e, _) => e.impedance_from_iter(iter, omega),
         Node::Parallel(branches) => {
             let sum_inv: Complex64 = branches
                 .iter()
-                .map(|branch| Complex64::new(1.0, 0.0) / series_impedance_with_params(branch, iter, omega))
+                .map(|branch| {
+                    Complex64::new(1.0, 0.0) / series_impedance_with_params(branch, iter, omega)
+                })
                 .sum();
             Complex64::new(1.0, 0.0) / sum_inv
         }
@@ -100,29 +118,44 @@ pub fn param_names(series: &[Node]) -> Vec<String> {
                     &owned_label
                 }
             };
-            e.param_names().iter().map(move |n| format!("{label}.{n}")).collect::<Vec<_>>()
+            e.param_names()
+                .iter()
+                .map(move |n| format!("{label}.{n}"))
+                .collect::<Vec<_>>()
         })
         .collect()
 }
 
 /// Current parameter values, in the same order as `param_names()`.
 pub fn param_values(series: &[Node]) -> Vec<f64> {
-    leaves(series).into_iter().flat_map(|(e, _)| e.values()).collect()
+    leaves(series)
+        .into_iter()
+        .flat_map(|(e, _)| e.values())
+        .collect()
 }
 
 /// Default physical-validity bounds, in the same order as `param_names()`.
 pub fn param_bounds(series: &[Node]) -> Vec<(f64, f64)> {
-    leaves(series).into_iter().flat_map(|(e, _)| e.param_bounds()).collect()
+    leaves(series)
+        .into_iter()
+        .flat_map(|(e, _)| e.param_bounds())
+        .collect()
 }
 
 /// Physical units, in the same order as `param_names()`.
 pub fn param_units(series: &[Node]) -> Vec<&'static str> {
-    leaves(series).into_iter().flat_map(|(e, _)| e.param_units().iter().copied()).collect()
+    leaves(series)
+        .into_iter()
+        .flat_map(|(e, _)| e.param_units().iter().copied())
+        .collect()
 }
 
 /// Total number of free parameters across all leaves.
 pub fn param_count(series: &[Node]) -> usize {
-    leaves(series).iter().map(|(e, _)| e.param_names().len()).sum()
+    leaves(series)
+        .iter()
+        .map(|(e, _)| e.param_names().len())
+        .sum()
 }
 
 /// Format numbers for printing: plain decimal for "normal-sized" numbers
@@ -136,7 +169,12 @@ fn fmt_num(x: f64) -> String {
 
 /// Human-readable "name = value [unit]  bounds (lo, hi)" table
 /// Used by `Circuit::__repr__` and `describe_param_error`.
-pub fn describe_params(names: &[String], values: &[f64], units: &[&str], bounds: &[(f64, f64)]) -> String {
+pub fn describe_params(
+    names: &[String],
+    values: &[f64],
+    units: &[&str],
+    bounds: &[(f64, f64)],
+) -> String {
     let width = names.iter().map(String::len).max().unwrap_or(0);
     names
         .iter()
@@ -169,7 +207,9 @@ fn levenshtein(a: &str, b: &str) -> usize {
     for i in 1..=a.len() {
         for j in 1..=b.len() {
             let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            dp[i][j] = (dp[i - 1][j] + 1).min(dp[i][j - 1] + 1).min(dp[i - 1][j - 1] + cost);
+            dp[i][j] = (dp[i - 1][j] + 1)
+                .min(dp[i][j - 1] + 1)
+                .min(dp[i - 1][j - 1] + cost);
         }
     }
     dp[a.len()][b.len()]
@@ -200,7 +240,9 @@ pub fn describe_param_error(
     let mut lines = Vec::new();
     for &key in unknown {
         match closest_param_name(key, names) {
-            Some(suggestion) => lines.push(format!("unknown parameter {key:?} (did you mean {suggestion:?}?)")),
+            Some(suggestion) => lines.push(format!(
+                "unknown parameter {key:?} (did you mean {suggestion:?}?)"
+            )),
             None => lines.push(format!("unknown parameter {key:?}")),
         }
     }
@@ -211,7 +253,11 @@ pub fn describe_param_error(
     lines.push("valid parameters for this circuit:".to_string());
     let width = names.iter().map(String::len).max().unwrap_or(0);
     for ((name, unit), &(lo, hi)) in names.iter().zip(units).zip(bounds) {
-        lines.push(format!("  {name:width$}  [{unit}]  bounds ({}, {})", fmt_num(lo), fmt_num(hi)));
+        lines.push(format!(
+            "  {name:width$}  [{unit}]  bounds ({}, {})",
+            fmt_num(lo),
+            fmt_num(hi)
+        ));
     }
     lines.join("\n")
 }
@@ -221,7 +267,10 @@ pub fn describe_param_error(
 pub fn with_param_values(series: &[Node], values: &[f64]) -> Series {
     let mut iter = values.iter().copied();
     let result = rebuild(series, &mut iter);
-    debug_assert!(iter.next().is_none(), "with_param_values: too many values supplied");
+    debug_assert!(
+        iter.next().is_none(),
+        "with_param_values: too many values supplied"
+    );
     result
 }
 
@@ -232,7 +281,11 @@ fn rebuild(series: &[Node], iter: &mut impl Iterator<Item = f64>) -> Series {
             Node::Element(e, label) => {
                 let n = e.param_names().len();
                 let vals: Vec<f64> = iter.by_ref().take(n).collect();
-                debug_assert_eq!(vals.len(), n, "with_param_values: not enough values supplied");
+                debug_assert_eq!(
+                    vals.len(),
+                    n,
+                    "with_param_values: not enough values supplied"
+                );
                 Node::Element(e.with_values(&vals), label.clone())
             }
             Node::Parallel(branches) => {
@@ -260,7 +313,9 @@ impl std::fmt::Display for ParseError {
             ParseError::UnknownElementCode(code, pos) => {
                 write!(f, "unknown element code {code:?} at position {pos}")
             }
-            ParseError::TrailingInput(pos) => write!(f, "unexpected trailing input at position {pos}"),
+            ParseError::TrailingInput(pos) => {
+                write!(f, "unexpected trailing input at position {pos}")
+            }
             ParseError::DuplicateLabel(label) => write!(f, "duplicate element label {label:?}"),
         }
     }
@@ -297,7 +352,10 @@ pub fn describe_parse_error(input: &str, err: &ParseError) -> String {
 
     lines.push(String::new());
     lines.push("syntax:".to_string());
-    lines.push("  - every element needs a numeric label, e.g. \"R0\" and \"C1\", not \"R\" and \"C\"".to_string());
+    lines.push(
+        "  - every element needs a numeric label, e.g. \"R0\" and \"C1\", not \"R\" and \"C\""
+            .to_string(),
+    );
     lines.push("  - connect elements in series with '-', e.g. \"R0-C1\"".to_string());
     lines.push("  - connect elements in parallel with '(...)' or 'p(...)', e.g. \"R0-(R1,C1)\" or \"R0-p(R1,C1)\"".to_string());
     lines.push(String::new());
@@ -403,7 +461,8 @@ fn parse_element(chars: &[char], pos: &mut usize) -> Result<Node, ParseError> {
     let digits: String = chars[digits_start..*pos].iter().collect();
     let label = format!("{code}{digits}");
 
-    let element = Element::default_for_code(&code).ok_or(ParseError::UnknownElementCode(code, start))?;
+    let element =
+        Element::default_for_code(&code).ok_or(ParseError::UnknownElementCode(code, start))?;
     Ok(Node::Element(element, Some(label)))
 }
 
@@ -443,17 +502,39 @@ mod tests {
 
     #[test]
     fn param_names_are_stable_and_type_scoped() {
-        let circuit = vec![r(1.0), Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]), cpe(4.0, 0.9)];
-        assert_eq!(param_names(&circuit), vec!["R0.r", "R1.r", "Cpe0.q", "Cpe0.alpha", "Cpe1.q", "Cpe1.alpha"]);
+        let circuit = vec![
+            r(1.0),
+            Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]),
+            cpe(4.0, 0.9),
+        ];
+        assert_eq!(
+            param_names(&circuit),
+            vec![
+                "R0.r",
+                "R1.r",
+                "Cpe0.q",
+                "Cpe0.alpha",
+                "Cpe1.q",
+                "Cpe1.alpha"
+            ]
+        );
     }
 
     #[test]
     fn with_param_values_roundtrips_through_param_values() {
-        let circuit = vec![r(1.0), Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]), cpe(4.0, 0.9)];
+        let circuit = vec![
+            r(1.0),
+            Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]),
+            cpe(4.0, 0.9),
+        ];
         let values = param_values(&circuit);
         let rebuilt = with_param_values(&circuit, &values);
         for &omega in &[0.1, 1.0, 100.0] {
-            assert_close(impedance(&circuit, omega), impedance(&rebuilt, omega), 1e-12);
+            assert_close(
+                impedance(&circuit, omega),
+                impedance(&rebuilt, omega),
+                1e-12,
+            );
         }
 
         let mut doubled = values.clone();
@@ -466,7 +547,11 @@ mod tests {
 
     #[test]
     fn impedance_with_params_matches_with_param_values_then_impedance() {
-        let circuit = vec![r(1.0), Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]), cpe(4.0, 0.9)];
+        let circuit = vec![
+            r(1.0),
+            Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]),
+            cpe(4.0, 0.9),
+        ];
         let values = param_values(&circuit);
         let mut perturbed = values.clone();
         for v in perturbed.iter_mut() {
@@ -484,7 +569,11 @@ mod tests {
 
     #[test]
     fn param_count_matches_flattened_length() {
-        let circuit = vec![r(1.0), Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]), cpe(4.0, 0.9)];
+        let circuit = vec![
+            r(1.0),
+            Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]),
+            cpe(4.0, 0.9),
+        ];
         assert_eq!(param_count(&circuit), param_values(&circuit).len());
         assert_eq!(param_count(&circuit), param_names(&circuit).len());
         assert_eq!(param_count(&circuit), 6);
@@ -499,7 +588,10 @@ mod tests {
     #[test]
     fn parses_series_ending_in_parallel() {
         let circuit = parse("R0-p(R1,Cpe1)").unwrap();
-        assert_eq!(param_names(&circuit), vec!["R0.r", "R1.r", "Cpe1.q", "Cpe1.alpha"]);
+        assert_eq!(
+            param_names(&circuit),
+            vec!["R0.r", "R1.r", "Cpe1.q", "Cpe1.alpha"]
+        );
     }
 
     #[test]
@@ -545,7 +637,10 @@ mod tests {
 
     #[test]
     fn rejects_unbalanced_parens() {
-        assert!(matches!(parse("R0-p(R1,C1"), Err(ParseError::UnexpectedEnd)));
+        assert!(matches!(
+            parse("R0-p(R1,C1"),
+            Err(ParseError::UnexpectedEnd)
+        ));
     }
 
     #[test]
@@ -561,7 +656,16 @@ mod tests {
     #[test]
     fn accepts_alias_codes_matching_python_static_method_casing() {
         let circuit = parse("CPE0-TLMQ1").unwrap();
-        assert_eq!(param_names(&circuit), vec!["CPE0.q", "CPE0.alpha", "TLMQ1.r_ion", "TLMQ1.qs", "TLMQ1.gamma"]);
+        assert_eq!(
+            param_names(&circuit),
+            vec![
+                "CPE0.q",
+                "CPE0.alpha",
+                "TLMQ1.r_ion",
+                "TLMQ1.qs",
+                "TLMQ1.gamma"
+            ]
+        );
     }
 
     #[test]
@@ -581,13 +685,21 @@ mod tests {
 
     #[test]
     fn closest_param_name_suggests_near_miss_typo() {
-        let names = vec!["R0.r".to_string(), "Cpe1.q".to_string(), "Cpe1.alpha".to_string()];
+        let names = vec![
+            "R0.r".to_string(),
+            "Cpe1.q".to_string(),
+            "Cpe1.alpha".to_string(),
+        ];
         assert_eq!(closest_param_name("Cpe1.alph", &names), Some("Cpe1.alpha"));
     }
 
     #[test]
     fn closest_param_name_gives_no_suggestion_for_unrelated_key() {
-        let names = vec!["R0.r".to_string(), "Cpe1.q".to_string(), "Cpe1.alpha".to_string()];
+        let names = vec![
+            "R0.r".to_string(),
+            "Cpe1.q".to_string(),
+            "Cpe1.alpha".to_string(),
+        ];
         assert_eq!(closest_param_name("bogus", &names), None);
     }
 
@@ -611,7 +723,10 @@ mod tests {
         // "R" is at column 2 (after the "  " prefix), so the offending position
         // (1, right after the code with no digits) lines up one column further.
         assert!(text.contains("  R\n"), "missing input line in:\n{text}");
-        assert!(text.contains("   ^"), "caret not aligned under position 1 in:\n{text}");
+        assert!(
+            text.contains("   ^"),
+            "caret not aligned under position 1 in:\n{text}"
+        );
     }
 
     #[test]
@@ -623,7 +738,10 @@ mod tests {
         assert!(text.contains("CPE"));
         assert!(text.contains("Zarc"));
         for &code in Element::CODES {
-            assert!(text.contains(code), "{code} missing from parse-error help:\n{text}");
+            assert!(
+                text.contains(code),
+                "{code} missing from parse-error help:\n{text}"
+            );
         }
     }
 

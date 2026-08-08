@@ -13,7 +13,11 @@ use crate::fit::{self, FitOptions, Weighting};
 use crate::models;
 
 /// Look up the model trained for `node`'s topology and run it over the spectrum.
-fn guess_params(node: &[Node], frequencies: &[f64], impedances: &[Complex64]) -> PyResult<Vec<f64>> {
+fn guess_params(
+    node: &[Node],
+    frequencies: &[f64],
+    impedances: &[Complex64],
+) -> PyResult<Vec<f64>> {
     let model = models::find_for_topology(node)
         .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?;
     model
@@ -53,82 +57,121 @@ fn parse_weighting(weight: &str) -> PyResult<Weighting> {
 impl Circuit {
     #[staticmethod]
     fn R(r: f64) -> Circuit {
-        Circuit { node: leaf(Element::R { r }) }
+        Circuit {
+            node: leaf(Element::R { r }),
+        }
     }
 
     #[staticmethod]
     fn C(c: f64) -> Circuit {
-        Circuit { node: leaf(Element::C { c }) }
+        Circuit {
+            node: leaf(Element::C { c }),
+        }
     }
 
     #[staticmethod]
     fn L(l: f64) -> Circuit {
-        Circuit { node: leaf(Element::L { l }) }
+        Circuit {
+            node: leaf(Element::L { l }),
+        }
     }
 
     #[staticmethod]
     fn La(l: f64, alpha: f64) -> Circuit {
-        Circuit { node: leaf(Element::La { l, alpha }) }
+        Circuit {
+            node: leaf(Element::La { l, alpha }),
+        }
     }
 
     #[staticmethod]
     fn CPE(q: f64, alpha: f64) -> Circuit {
-        Circuit { node: leaf(Element::Cpe { q, alpha }) }
+        Circuit {
+            node: leaf(Element::Cpe { q, alpha }),
+        }
     }
 
     #[staticmethod]
     fn W(aw: f64) -> Circuit {
-        Circuit { node: leaf(Element::W { aw }) }
+        Circuit {
+            node: leaf(Element::W { aw }),
+        }
     }
 
     #[staticmethod]
     fn Wo(z0: f64, tau: f64) -> Circuit {
-        Circuit { node: leaf(Element::Wo { z0, tau }) }
+        Circuit {
+            node: leaf(Element::Wo { z0, tau }),
+        }
     }
 
     #[staticmethod]
     fn Ws(z0: f64, tau: f64) -> Circuit {
-        Circuit { node: leaf(Element::Ws { z0, tau }) }
+        Circuit {
+            node: leaf(Element::Ws { z0, tau }),
+        }
     }
 
     #[staticmethod]
     fn G(rg: f64, tg: f64) -> Circuit {
-        Circuit { node: leaf(Element::G { rg, tg }) }
+        Circuit {
+            node: leaf(Element::G { rg, tg }),
+        }
     }
 
     #[staticmethod]
     fn Gs(rg: f64, tg: f64, phi: f64) -> Circuit {
-        Circuit { node: leaf(Element::Gs { rg, tg, phi }) }
+        Circuit {
+            node: leaf(Element::Gs { rg, tg, phi }),
+        }
     }
 
     #[staticmethod]
     fn K(r: f64, tau_k: f64) -> Circuit {
-        Circuit { node: leaf(Element::K { r, tau_k }) }
+        Circuit {
+            node: leaf(Element::K { r, tau_k }),
+        }
     }
 
     #[staticmethod]
     fn Zarc(r: f64, tau_k: f64, gamma: f64) -> Circuit {
-        Circuit { node: leaf(Element::Zarc { r, tau_k, gamma }) }
+        Circuit {
+            node: leaf(Element::Zarc { r, tau_k, gamma }),
+        }
     }
 
     #[staticmethod]
     fn TLMQ(r_ion: f64, qs: f64, gamma: f64) -> Circuit {
-        Circuit { node: leaf(Element::Tlmq { r_ion, qs, gamma }) }
+        Circuit {
+            node: leaf(Element::Tlmq { r_ion, qs, gamma }),
+        }
     }
 
     #[staticmethod]
     fn T(a_coeff: f64, b_coeff: f64, a_param: f64, b_param: f64) -> Circuit {
-        Circuit { node: leaf(Element::T { a_coeff, b_coeff, a_param, b_param }) }
+        Circuit {
+            node: leaf(Element::T {
+                a_coeff,
+                b_coeff,
+                a_param,
+                b_param,
+            }),
+        }
     }
 
     #[staticmethod]
     fn series(elements: Vec<Circuit>) -> Circuit {
-        Circuit { node: elements.into_iter().flat_map(|c| c.node).collect() }
+        Circuit {
+            node: elements.into_iter().flat_map(|c| c.node).collect(),
+        }
     }
 
     #[staticmethod]
     fn parallel(elements: Vec<Circuit>) -> Circuit {
-        Circuit { node: vec![Node::Parallel(elements.into_iter().map(|c| c.node).collect())] }
+        Circuit {
+            node: vec![Node::Parallel(
+                elements.into_iter().map(|c| c.node).collect(),
+            )],
+        }
     }
 
     /// Parse a circuit topology string, e.g. `"R0-p(R1,Cpe1)"` or
@@ -141,8 +184,8 @@ impl Circuit {
     #[new]
     fn new(s: &str) -> PyResult<Circuit> {
         let text = models::resolve_alias(s).unwrap_or(s);
-        let node =
-            circuit::parse(text).map_err(|e| PyValueError::new_err(circuit::describe_parse_error(text, &e)))?;
+        let node = circuit::parse(text)
+            .map_err(|e| PyValueError::new_err(circuit::describe_parse_error(text, &e)))?;
         Ok(Circuit { node })
     }
 
@@ -159,7 +202,9 @@ impl Circuit {
     /// Raises if no model has been trained for this topology.
     fn guess(&self, frequencies: Vec<f64>, impedances: Vec<Complex64>) -> PyResult<Vec<f64>> {
         if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+            return Err(PyValueError::new_err(
+                "frequencies and impedances must have the same length",
+            ));
         }
         guess_params(&self.node, &frequencies, &impedances)
     }
@@ -180,7 +225,9 @@ impl Circuit {
                 values.len()
             )));
         }
-        Ok(Circuit { node: circuit::with_param_values(&self.node, &values) })
+        Ok(Circuit {
+            node: circuit::with_param_values(&self.node, &values),
+        })
     }
 
     /// Rebuild this circuit with parameter values looked up by name (see
@@ -189,8 +236,16 @@ impl Circuit {
     fn with_named_values(&self, values: HashMap<String, f64>) -> PyResult<Circuit> {
         let names = circuit::param_names(&self.node);
 
-        let unknown: Vec<&str> = values.keys().filter(|k| !names.contains(k)).map(String::as_str).collect();
-        let missing: Vec<&str> = names.iter().filter(|n| !values.contains_key(*n)).map(String::as_str).collect();
+        let unknown: Vec<&str> = values
+            .keys()
+            .filter(|k| !names.contains(k))
+            .map(String::as_str)
+            .collect();
+        let missing: Vec<&str> = names
+            .iter()
+            .filter(|n| !values.contains_key(*n))
+            .map(String::as_str)
+            .collect();
 
         if !unknown.is_empty() || !missing.is_empty() {
             let units = circuit::param_units(&self.node);
@@ -201,16 +256,28 @@ impl Circuit {
         }
 
         let positional: Vec<f64> = names.iter().map(|name| values[name]).collect();
-        Ok(Circuit { node: circuit::with_param_values(&self.node, &positional) })
+        Ok(Circuit {
+            node: circuit::with_param_values(&self.node, &positional),
+        })
     }
 
-    fn impedance<'py>(&self, py: Python<'py>, frequencies: Vec<f64>) -> Bound<'py, PyArray1<Complex64>> {
+    fn impedance<'py>(
+        &self,
+        py: Python<'py>,
+        frequencies: Vec<f64>,
+    ) -> Bound<'py, PyArray1<Complex64>> {
         let node = &self.node;
         let result: Vec<Complex64> = py.allow_threads(|| {
             if frequencies.len() >= PARALLEL_THRESHOLD {
-                frequencies.par_iter().map(|f| circuit::impedance(node, TAU * f)).collect()
+                frequencies
+                    .par_iter()
+                    .map(|f| circuit::impedance(node, TAU * f))
+                    .collect()
             } else {
-                frequencies.iter().map(|f| circuit::impedance(node, TAU * f)).collect()
+                frequencies
+                    .iter()
+                    .map(|f| circuit::impedance(node, TAU * f))
+                    .collect()
             }
         });
         result.into_pyarray(py)
@@ -245,13 +312,24 @@ impl Circuit {
         weight: &str,
     ) -> PyResult<Vec<f64>> {
         if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+            return Err(PyValueError::new_err(
+                "frequencies and impedances must have the same length",
+            ));
         }
         let weighting = parse_weighting(weight)?;
         let node = &self.node;
         let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
         let weights = fit::compute_weights(&impedances, weighting);
-        Ok(py.allow_threads(|| fit::residuals(node, &params, &omegas, &impedances, &weights, &Default::default())))
+        Ok(py.allow_threads(|| {
+            fit::residuals(
+                node,
+                &params,
+                &omegas,
+                &impedances,
+                &weights,
+                &Default::default(),
+            )
+        }))
     }
 
     /// Central-difference Jacobian of `residuals()` at `params`, shape `(2 *
@@ -266,15 +344,28 @@ impl Circuit {
         weight: &str,
     ) -> PyResult<Vec<Vec<f64>>> {
         if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+            return Err(PyValueError::new_err(
+                "frequencies and impedances must have the same length",
+            ));
         }
         let weighting = parse_weighting(weight)?;
         let node = &self.node;
         let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
         let weights = fit::compute_weights(&impedances, weighting);
-        let columns = py.allow_threads(|| fit::jacobian_columns(node, &params, &omegas, &impedances, &weights, &Default::default()));
+        let columns = py.allow_threads(|| {
+            fit::jacobian_columns(
+                node,
+                &params,
+                &omegas,
+                &impedances,
+                &weights,
+                &Default::default(),
+            )
+        });
         let n_rows = columns.first().map_or(0, Vec::len);
-        Ok((0..n_rows).map(|i| columns.iter().map(|col| col[i]).collect()).collect())
+        Ok((0..n_rows)
+            .map(|i| columns.iter().map(|col| col[i]).collect())
+            .collect())
     }
 
     #[pyo3(signature = (
@@ -313,7 +404,9 @@ impl Circuit {
     ) -> PyResult<FitResult> {
         let weighting = parse_weighting(weight)?;
         if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err("frequencies and impedances must have the same length"));
+            return Err(PyValueError::new_err(
+                "frequencies and impedances must have the same length",
+            ));
         }
 
         let node = if guess_init {
@@ -326,8 +419,19 @@ impl Circuit {
         let outcome = py
             .allow_threads(|| match method {
                 "levenberg_marquardt" => {
-                    let options = FitOptions { max_iterations, ftol, xtol, gtol: 1e-8 };
-                    fit::levenberg_marquardt_fit(&node, &frequencies, &impedances, weighting, &options)
+                    let options = FitOptions {
+                        max_iterations,
+                        ftol,
+                        xtol,
+                        gtol: 1e-8,
+                    };
+                    fit::levenberg_marquardt_fit(
+                        &node,
+                        &frequencies,
+                        &impedances,
+                        weighting,
+                        &options,
+                    )
                 }
                 "particle_swarm" => fit::particle_swarm_fit(
                     &node,
@@ -345,9 +449,13 @@ impl Circuit {
                     weighting,
                     nelder_mead_iterations,
                 ),
-                "differential_evolution" => {
-                    fit::differential_evolution_fit(&node, &frequencies, &impedances, weighting, de_evaluations)
-                }
+                "differential_evolution" => fit::differential_evolution_fit(
+                    &node,
+                    &frequencies,
+                    &impedances,
+                    weighting,
+                    de_evaluations,
+                ),
                 "simulated_annealing" => fit::simulated_annealing_fit(
                     &node,
                     &frequencies,
@@ -371,10 +479,15 @@ impl Circuit {
             })
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
 
-        let params: HashMap<String, f64> =
-            outcome.param_names.iter().cloned().zip(outcome.params.iter().copied()).collect();
-        let stderr: Option<HashMap<String, f64>> =
-            outcome.stderr.map(|se| outcome.param_names.iter().cloned().zip(se).collect());
+        let params: HashMap<String, f64> = outcome
+            .param_names
+            .iter()
+            .cloned()
+            .zip(outcome.params.iter().copied())
+            .collect();
+        let stderr: Option<HashMap<String, f64>> = outcome
+            .stderr
+            .map(|se| outcome.param_names.iter().cloned().zip(se).collect());
 
         Ok(FitResult {
             circuit: Circuit { node: outcome.node },
