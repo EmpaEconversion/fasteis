@@ -29,16 +29,24 @@ def encode(
 
 
 class SpectrumStream(IterableDataset):
-    """Endless stream of encoded synthetic impedance spectra."""
+    """Endless stream of encoded synthetic impedance spectra, a batch at a time.
+
+    Yields whole batches of spectra, so the DataLoader is used with
+    `batch_size=None`. Collating per spectrum costs three `torch.from_numpy`
+    calls and a stack across the whole batch, all in Python, which dominates
+    once the batch is large.
+    """
 
     def __init__(
         self,
         circuit: circuits.TrainingCircuit,
+        batch_size: int,
         seed: int = 0,
         cfg: priors.PriorConfig = priors.DEFAULT,
         estimator: str = scales.DEFAULT,
     ) -> None:
         self.circuit = circuit
+        self.batch_size = batch_size
         self.seed = seed
         self.cfg = cfg
         self.estimator = estimator
@@ -49,13 +57,22 @@ class SpectrumStream(IterableDataset):
         rng = priors.split_rng(priors.TRAINING, self.seed, worker)
         built = fasteis.Circuit(self.circuit.circuit_str)
 
+        n = self.batch_size
         while True:
-            spectrum = priors.sample(rng, self.circuit, self.cfg, built)
-            grid, scalars, targets = encode(self.circuit, spectrum, self.estimator)
+            grids = np.empty((n, features.N_CHANNELS, features.N_GRID), np.float32)
+            scalars = np.empty((n, features.N_SCALARS), np.float32)
+            targets = np.empty((n, self.circuit.n_params), np.float32)
+
+            for i in range(n):
+                spectrum = priors.sample(rng, self.circuit, self.cfg, built)
+                grids[i], scalars[i], targets[i] = encode(
+                    self.circuit, spectrum, self.estimator
+                )
+
             yield (
-                torch.from_numpy(grid),
+                torch.from_numpy(grids),
                 torch.from_numpy(scalars),
-                torch.from_numpy(targets.astype(np.float32)),
+                torch.from_numpy(targets),
             )
 
 

@@ -146,6 +146,7 @@ def main() -> None:
     p.add_argument("--lambda0", type=float, default=1.0)
     p.add_argument("--lambda-decay", type=int, default=3000)
     p.add_argument("--workers", type=int, default=4)
+    p.add_argument("--prefetch", type=int, default=4, help="batches queued per worker")
     p.add_argument("--eval-every", type=int, default=2000)
     p.add_argument("--eval-n", type=int, default=300)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
@@ -177,11 +178,15 @@ def main() -> None:
     opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.steps)
 
+    # the stream yields whole batches, so the loader does no collating
+    parallel = args.workers > 0
     loader = DataLoader(
-        dataset.SpectrumStream(circuit, seed=args.seed),
-        batch_size=args.batch,
+        dataset.SpectrumStream(circuit, args.batch, seed=args.seed),
+        batch_size=None,
         num_workers=args.workers,
-        persistent_workers=args.workers > 0,
+        persistent_workers=parallel,
+        prefetch_factor=args.prefetch if parallel else None,
+        pin_memory=device.type == "cuda",
     )
 
     eval_spectra = evaluate.validation_set(circuit, args.eval_n)
@@ -194,7 +199,9 @@ def main() -> None:
     stream = iter(loader)
 
     for step in range(1, args.steps + 1):
-        grid, scalars, targets = (t.to(device) for t in next(stream))
+        grid, scalars, targets = (
+            t.to(device, non_blocking=True) for t in next(stream)
+        )
         target_std = std.encode(targets)
 
         mu, log_var = net(grid, scalars)
