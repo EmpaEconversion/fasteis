@@ -44,6 +44,14 @@ def nll(mu: Tensor, log_var: Tensor, target: Tensor) -> Tensor:
     return (0.5 * (mu - target) ** 2 / log_var.exp() + 0.5 * log_var).mean()
 
 
+def restore_optimizer(opt: torch.optim.Optimizer, state: dict, lr: float) -> None:
+    """Load optimizer state, then put the learning rate back to `lr`."""
+    opt.load_state_dict(state)
+    for group in opt.param_groups:
+        group["lr"] = lr
+        group.pop("initial_lr", None)
+
+
 def lambda_at(step: int, lambda0: float, decay_steps: int) -> float:
     """Exponential decay from lambda0 down to LAMBDA_FLOOR."""
     if lambda0 <= 0.0:
@@ -153,6 +161,13 @@ def main() -> None:
     p.add_argument("--head-width", type=int, default=model.DEFAULT.head_width)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--out", type=Path, default=None)
+    p.add_argument(
+        "--resume",
+        nargs="?",
+        const="last.pt",
+        default=None,
+        help="continue from a checkpoint in --out; bare flag means last.pt",
+    )
     args = p.parse_args()
 
     circuit = circuits.get(args.circuit)
@@ -173,6 +188,27 @@ def main() -> None:
     print(f"{circuit.name}: {config}, {model.parameter_count(net):,} weights")
 
     opt = torch.optim.AdamW(net.parameters(), lr=args.lr, weight_decay=1e-4)
+    trained = 0
+    best = float("inf")
+    if args.resume:
+        path = args.out / args.resume
+        payload = torch.load(path, map_location=device, weights_only=False)
+        if payload["config"] != config.as_dict():
+            message = f"{path} has shape {payload['config']}, asked for {config.as_dict()}"
+            raise ValueError(message)
+        net.load_state_dict(payload["state_dict"])
+        if "optimizer" in payload:
+            restore_optimizer(opt, payload["optimizer"], args.lr)
+        trained = payload["step"]
+        # checkpoints made before --resume was implemented have no score
+        # rebuild the score from the stored summary
+        # take p90 as 0 so the old model is harder to displace
+        best = payload.get("score")
+        if best is None:
+            best = (1.0 - payload["converged"]) * 1e6 + payload["median_excess"] * 1e3
+        print(f"resumed {path} at step {trained}, previous best score {best:.2f}")
+
+    # built after any resume, so it anneals from --lr over this run's --steps
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.steps)
 
     # the stream yields whole batches, so the loader does no collating
@@ -189,7 +225,6 @@ def main() -> None:
     eval_spectra = evaluate.validation_set(circuit, args.eval_n)
     eval_floor = evaluate.fit_all(circuit, eval_spectra, evaluate.truth_init_params(circuit))
 
-    best = float("inf")
     start = time.perf_counter()
     stream = iter(loader)
 
@@ -237,22 +272,25 @@ def main() -> None:
             score = (
                 (1.0 - summary.converged) * 1e6 + summary.median_excess * 1e3 + summary.p90_excess
             )
+            payload = {
+                "state_dict": net.state_dict(),
+                "optimizer": opt.state_dict(),
+                "circuit": circuit.name,
+                "config": config.as_dict(),
+                "target_mean": mean,
+                "target_std": std_dev,
+                "estimator": scales.DEFAULT,
+                "step": trained + step,
+                "score": score,
+                "converged": summary.converged,
+                "median_excess": summary.median_excess,
+            }
+            # last.pt always, so --resume can continue even after a plateau
+            torch.save(payload, args.out / "last.pt")
             if score < best:
                 best = score
-                torch.save(
-                    {
-                        "state_dict": net.state_dict(),
-                        "circuit": circuit.name,
-                        "config": config.as_dict(),
-                        "target_mean": mean,
-                        "target_std": std_dev,
-                        "estimator": scales.DEFAULT,
-                        "step": step,
-                        "converged": summary.converged,
-                        "median_excess": summary.median_excess,
-                    },
-                    args.out / "best.pt",
-                )
+                payload["score"] = best
+                torch.save(payload, args.out / "best.pt")
                 print(f"  saved (score {score:.2f})")
 
     print(f"done in {time.perf_counter() - start:.0f}s")
