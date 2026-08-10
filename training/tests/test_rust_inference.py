@@ -21,6 +21,34 @@ def test_alias_builds_the_trained_topology() -> None:
     assert fasteis.Circuit("randles").param_names() == list(RANDLES.param_names)
 
 
+@pytest.mark.parametrize("name", fasteis.Circuit.ml_circuits())
+def test_every_registered_circuit_is_trainable_and_guesses(name: str) -> None:
+    """Each registry row must name a training circuit and guess within its bounds."""
+    circuit = circuits.get(name)
+    built = fasteis.Circuit(name)
+    assert built.param_names() == list(circuit.param_names)
+
+    spectrum = priors.sample(np.random.default_rng(21), circuit)
+    guess = built.guess(list(spectrum.freqs), list(spectrum.z))
+
+    assert len(guess) == circuit.n_params
+    assert np.all(np.isfinite(guess))
+    for value, (lo, hi) in zip(guess, built.param_bounds(), strict=True):
+        assert lo <= value <= hi
+
+
+@pytest.mark.parametrize("name", fasteis.Circuit.ml_circuits())
+def test_every_registered_circuit_fits_from_its_guess(name: str) -> None:
+    """guess_init must reach the noise floor on a clean spectrum."""
+    circuit = circuits.get(name)
+    spectrum = priors.sample(np.random.default_rng(5), circuit)
+    f, z = list(spectrum.freqs), list(spectrum.z_clean)
+
+    result = fasteis.Circuit(name).fit(f, z, guess_init=True)
+    assert result.success
+    assert result.chi_square < 1e-12
+
+
 def test_guess_init_starts_the_fit_from_the_guess() -> None:
     spectrum = priors.sample(np.random.default_rng(99), RANDLES)
     f, z = list(spectrum.freqs), list(spectrum.z)
@@ -208,6 +236,4 @@ def test_weights_trained_for_another_circuit_are_rejected() -> None:
 
     spectrum = priors.sample(np.random.default_rng(6), RANDLES)
     with pytest.raises(ValueError, match="different circuit"):
-        fasteis.Circuit("randles").guess(
-            list(spectrum.freqs), list(spectrum.z), weights=str(other)
-        )
+        fasteis.Circuit("randles").guess(list(spectrum.freqs), list(spectrum.z), weights=str(other))
