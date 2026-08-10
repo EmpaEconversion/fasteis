@@ -18,4 +18,4 @@ repos:
         entry: cargo fmt --all
         language: system
         types: [rust]
-        pass_filename: false
+        pass_filenames: false
