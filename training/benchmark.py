@@ -63,7 +63,7 @@ def _bucket_report(
 def main() -> None:
     """Run the benchmark."""
     p = argparse.ArgumentParser()
-    p.add_argument("--name", default="randles", help="which trained circuit")
+    p.add_argument("--circuit", default="randles", help="which trained circuit")
     p.add_argument("--n", type=int, default=2000)
     p.add_argument("--weights", default=None, help="a .eisnn path, else the embedded model")
     p.add_argument(
@@ -74,7 +74,7 @@ def main() -> None:
     )
     args = p.parse_args()
 
-    circuit = circuits.get(args.name)
+    circuit = circuits.get(args.circuit)
     guess = make_guess_init_params(
         circuit.circuit_str if args.weights else circuit.name, args.weights
     )

@@ -67,14 +67,14 @@ def export(checkpoint: Path, out: Path, dtype: str = "f16") -> None:
 def main() -> None:
     """Export a checkpoint."""
     p = argparse.ArgumentParser()
-    p.add_argument("--name", default="randles", help="which trained circuit")
+    p.add_argument("--circuit", default="randles", help="which trained circuit")
     p.add_argument("--checkpoint", type=Path, default=None)
     p.add_argument("--models-dir", type=Path, default=Path("src/models"))
     p.add_argument("--dtype", default="f16", choices=sorted(serialize_weights.DTYPES))
     args = p.parse_args()
 
-    checkpoint = args.checkpoint or Path("training/checkpoints") / args.name / "best.pt"
-    export(checkpoint, args.models_dir / f"{args.name}.eisnn", args.dtype)
+    checkpoint = args.checkpoint or Path("training/checkpoints") / args.circuit / "best.pt"
+    export(checkpoint, args.models_dir / f"{args.circuit}.eisnn", args.dtype)
 
 
 if __name__ == "__main__":

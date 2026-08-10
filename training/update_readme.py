@@ -156,7 +156,7 @@ def main() -> None:
     for name in circuits.CIRCUITS:
         path = args.results / f"{name}.json"
         if not path.exists():
-            print(f"{name:<15} no results yet, run benchmark.py --name {name}")
+            print(f"{name:<15} no results yet, run benchmark.py --circuit {name}")
             continue
         every[name] = json.loads(path.read_text(encoding="utf-8"))
         text, found = substitute(text, name, render(every[name]))

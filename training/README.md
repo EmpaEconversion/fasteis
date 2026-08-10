@@ -222,8 +222,9 @@ at the cost of accuracy. For randles, dropping to f16 is reasonable:
 ## Adding a circuit
 
 1. Create a `TrainingCircuit` class for the circuit in `circuits.py` and add it to the registry
-2. Train with e.g. `training/train.py --circuit=my_new_circuit --steps 10000 --batch 4096 --workers 12`
-3. Export woth `training/export.py --name <name>`, which writes `src/models/<name>.eisnn`.
-4. Add a row to `MODELS` in `src/models.rs` and rebuild.
-5. Benchmark with `training/benchmark.py --n 2000`
-6. Add a results table above.
+2. Check it is identifiable with `training/inspect_priors.py <name>`
+3. Train with e.g. `training/train.py --circuit <name> --steps 10000 --batch 4096 --workers 12`
+4. Export with `training/export.py --circuit <name>`, which writes `src/models/<name>.eisnn`
+5. Add a row to `MODELS` in `src/models.rs` and rebuild
+6. Benchmark with `training/benchmark.py --circuit <name> --n 2000`
+7. Regenerate the tables with `training/update_readme.py`
