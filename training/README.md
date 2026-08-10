@@ -6,12 +6,6 @@ EIS data.
 Used as an initial guess for `Circuit.fit()`, to (hopefully) converge reliably
 and quickly without any manual initial guess.
 
-Trained circuits:
-
-| name | circuit | fit parameters | weights | file | trained on |
-|---|---|---|---|---|---|
-| `randles` | `R0-(CPE1,R1-W1)` | 5 | 68.6k | 136 KiB | synthetic |
-
 Training needs torch (`uv sync --all-extras`).
 
 ## Usage
@@ -31,100 +25,242 @@ parameters, then normal least-squares fitting goes from there.
 
 `Circuit.ml_circuits()` lists what is currently available.
 
-## Results
+## Models
 
-Currently only using synthetic tests. The benchmarks compare fits starting from
-different initial values:
-- 'Floor' starts from already correct values (i.e. impossible to beat).
-- Library defaults are fixed, physically sensible numbers, so should be easy to beat.
-- 'Truth x/div 5' are the true values off by a factor 5, meant to represent
-a reasonable real world guess.
-- 'ML guess' is the initial parameter guess given by the ML model.
+Circuits are trained on synthetic data, and summarised in the table below.
+- Percentages are rates of convergence starting from parameters multiplied or divided by 5 from real values vs the model intial guess.
+- 'floor' is the median impedance calculation count starting from the true parameters.
+- 'excess' is extra calculations beyond 'floor', median and 90th percentile are shown.
 
-There are benchmarks for both standard LM, and for the LM with restarting tricks
-used in `Circuit,fit()`, which can make bad initial guesses more robust.
+<!-- results:library -->
+| name | circuit | params | params * / 5 | ml guess | floor | ml excess med | p90 |
+|---|---|---|---|---|---|---|---|
+| `rc` | `R0-(R1,C1)` | 3 | 98.3% | **100.0%** | 22| **6** | 7 |
+| `rc_l` | `L0-R0-(R1,C1)` | 4 | 94.8% | **100.0%** | 28| **0** | 9 |
+| `rq` | `R0-(R1,CPE1)` | 4 | 88.0% | **100.0%** | 28| **0** | 9 |
+| `rq_l` | `L0-R0-(R1,CPE1)` | 5 | 87.4% | **100.0%** | 34| **0** | 11 |
+| `two_rc` | `R0-(R1,C1)-(R2,C2)` | 5 | 75.5% | **100.0%** | 44| **0** | 11 |
+| `two_rc_l` | `L0-R0-(R1,C1)-(R2,C2)` | 6 | 71.5% | **100.0%** | 53| **12** | 13 |
+| `two_rq` | `R0-(R1,CPE1)-(R2,CPE2)` | 7 | 55.1% | **99.6%** | 76| **15** | 62 |
+| `two_rq_l` | `L0-R0-(R1,CPE1)-(R2,CPE2)` | 8 | 50.3% | **98.8%** | 86| **17** | 188 |
+| `randles` | `R0-(CPE1,R1-W1)` | 5 | 69.8% | **99.9%** | 45| **10** | 11 |
+| `sei_randles` | `R0-(R1,CPE1)-(R2-W2,CPE2)` | 8 | 41.6% | **99.1%** | 103| **0** | 52 |
+| `sei_randles_wo` | `R0-(R1,CPE1)-(R2-Wo2,CPE2)` | 9 | 26.0% | **91.3%** | 276| **16** | 252 |
+<!-- /results:library -->
 
-Work is counted in number of impedance sweep evaluations.
+Expand to details of more challenging models:
 
-### `randles`
+### `two_rq`
 
-<!-- results:randles -->
-`R0-(CPE1,R1-W1)`, 2000 synthetic spectra. Inference costs 0.75 ms/spectrum against 1.18 ms for the fit it starts.
+<!-- results:two_rq -->
+<details>
+<summary>Show details</summary>
+
+`R0-(R1,CPE1)-(R2,CPE2)`, 1000 synthetic spectra. Inference costs 0.72 ms/spectrum against 1.99 ms for the fit it starts.
 
 Plain LM:
 | source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
-| floor (truth) | 100.00% | 0 | 0 | 0 | 45 |
-| library defaults | 36.55% | 246 | 563 | 888 | 258 |
-| truth x/div 5 | 70.20% | 79 | 193 | 389 | 124 |
-| **ml guess** | **99.95%** | **10** | **11** | **58** | **45** |
+| floor (truth) | 100.00% | 0 | 0 | 0 | 76 |
+| library defaults | 51.20% | 368 | 717 | 1641 | 366 |
+| truth x/div 5 | 55.10% | 171 | 458 | 1476 | 276 |
+| **ml guess** | **99.60%** | **15** | **62** | **246** | **91** |
 
 `Circuit.fit()` / smart LM, which screens candidate starts:
 | source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
-| floor (truth) | 100.00% | 0 | 0 | 0 | 66 |
-| library defaults | 75.35% | 711 | 2774 | 11937 | 1078 |
-| truth x/div 5 | 88.45% | 102 | 687 | 3515 | 192 |
-| **ml guess** | **99.95%** | **10** | **12** | **66** | **66** |
+| floor (truth) | 100.00% | 0 | 0 | 0 | 101 |
+| library defaults | 77.90% | 415 | 5348 | 44383 | 685 |
+| truth x/div 5 | 77.30% | 352 | 2717 | 24850 | 652 |
+| **ml guess** | **99.70%** | **15** | **62** | **294** | **131** |
 
 Relative error of the ml guess, before fitting (%):
-| | `R0.r` | `CPE1.q` | `CPE1.alpha` | `R1.r` | `W1.aw` |
-|---|---|---|---|---|---|
-| median | 1.1 | 3.3 | 0.6 | 2.9 | 1.4 |
-| p90 | 3.6 | 15.8 | 3.5 | 27.4 | 10.5 |
-| p99 | 44.2 | 58.8 | 12.1 | 157.2 | 42.5 |
+| | `R0.r` | `R1.r` | `CPE1.q` | `CPE1.alpha` | `R2.r` | `CPE2.q` | `CPE2.alpha` |
+|---|---|---|---|---|---|---|---|
+| median | 1.2 | 5.4 | 7.6 | 1.7 | 8.6 | 36.7 | 9.6 |
+| p90 | 10.5 | 24.3 | 34.6 | 7.5 | 35.5 | 113.7 | 27.6 |
+| p99 | 96.6 | 94.2 | 145.8 | 16.8 | 115.9 | 380.5 | 50.0 |
+</details>
+<!-- /results:two_rq -->
 
-<sub>generated 2026-08-08T12:10:34+00:00 by benchmark.py</sub>
-<!-- /results:randles -->
 ### `two_rq_l`
 
 <!-- results:two_rq_l -->
-`L0-R0-(R1,CPE1)-(R2,CPE2)`, 2000 synthetic spectra. Inference costs 0.73 ms/spectrum against 3.11 ms for the fit it starts.
+<details>
+<summary>Show details</summary>
+
+`L0-R0-(R1,CPE1)-(R2,CPE2)`, 1000 synthetic spectra. Inference costs 0.72 ms/spectrum against 3.23 ms for the fit it starts.
 
 Plain LM:
 | source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
 | floor (truth) | 100.00% | 0 | 0 | 0 | 86 |
-| library defaults | 8.20% | 640 | 1131 | 1999 | 1104 |
-| truth x/div 5 | 51.25% | 261 | 777 | 3817 | 382 |
-| **ml guess** | **98.55%** | **17** | **172** | **732** | **120** |
+| library defaults | 57.10% | 587 | 1180 | 2826 | 604 |
+| truth x/div 5 | 50.30% | 260 | 687 | 2509 | 366 |
+| **ml guess** | **98.80%** | **17** | **188** | **668** | **120** |
 
 `Circuit.fit()` / smart LM, which screens candidate starts:
 | source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
 | floor (truth) | 100.00% | 0 | 0 | 0 | 130 |
-| library defaults | 23.20% | 1077 | 33044 | 122970 | 14916 |
-| truth x/div 5 | 80.20% | 532 | 3875 | 32742 | 949 |
-| **ml guess** | **98.90%** | **17** | **180** | **1427** | **164** |
+| library defaults | 83.90% | 633 | 11359 | 81777 | 945 |
+| truth x/div 5 | 80.00% | 507 | 4160 | 36863 | 928 |
+| **ml guess** | **99.00%** | **17** | **192** | **1131** | **148** |
 
 Relative error of the ml guess, before fitting (%):
 | | `L0.l` | `R0.r` | `R1.r` | `CPE1.q` | `CPE1.alpha` | `R2.r` | `CPE2.q` | `CPE2.alpha` |
 |---|---|---|---|---|---|---|---|---|
-| median | 4.7 | 7.7 | 8.4 | 14.0 | 2.7 | 14.0 | 32.5 | 6.7 |
-| p90 | 13.6 | 48.5 | 51.2 | 60.6 | 12.4 | 55.8 | 138.0 | 24.7 |
-| p99 | 72.0 | 258.3 | 210.7 | 239.0 | 30.8 | 183.9 | 718.6 | 48.7 |
-
-<sub>generated 2026-08-08T12:28:52+00:00 by benchmark.py</sub>
+| median | 4.8 | 7.6 | 8.1 | 13.6 | 2.7 | 13.5 | 30.9 | 6.6 |
+| p90 | 13.6 | 47.7 | 50.2 | 61.1 | 12.5 | 54.6 | 145.0 | 24.1 |
+| p99 | 85.9 | 237.1 | 209.8 | 268.5 | 31.5 | 165.9 | 711.8 | 46.1 |
+</details>
 <!-- /results:two_rq_l -->
+
+### `randles`
+
+<!-- results:randles -->
+<details>
+<summary>Show details</summary>
+
+`R0-(CPE1,R1-W1)`, 1000 synthetic spectra. Inference costs 1.72 ms/spectrum against 2.64 ms for the fit it starts.
+
+Plain LM:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 45 |
+| library defaults | 55.20% | 102 | 284 | 575 | 199 |
+| truth x/div 5 | 69.80% | 79 | 206 | 522 | 124 |
+| **ml guess** | **99.90%** | **10** | **11** | **66** | **45** |
+
+`Circuit.fit()` / smart LM, which screens candidate starts:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 66 |
+| library defaults | 78.40% | 169 | 1795 | 13150 | 325 |
+| truth x/div 5 | 89.10% | 102 | 671 | 3637 | 190 |
+| **ml guess** | **99.90%** | **10** | **11** | **66** | **66** |
+
+Relative error of the ml guess, before fitting (%):
+| | `R0.r` | `CPE1.q` | `CPE1.alpha` | `R1.r` | `W1.aw` |
+|---|---|---|---|---|---|
+| median | 1.2 | 3.3 | 0.7 | 2.9 | 1.4 |
+| p90 | 4.0 | 16.4 | 3.5 | 24.9 | 9.6 |
+| p99 | 55.1 | 81.8 | 12.5 | 119.2 | 39.2 |
+</details>
+<!-- /results:randles -->
+
+### `sei_randles`
+
+<!-- results:sei_randles -->
+<details>
+<summary>Show details</summary>
+
+`R0-(R1,CPE1)-(R2-W2,CPE2)`, 1000 synthetic spectra. Inference costs 2.35 ms/spectrum against 3.26 ms for the fit it starts.
+
+Plain LM:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 103 |
+| library defaults | 30.40% | 400 | 1180 | 5233 | 726 |
+| truth x/div 5 | 41.60% | 228 | 672 | 2386 | 416 |
+| **ml guess** | **99.10%** | **0** | **52** | **334** | **103** |
+
+`Circuit.fit()` / smart LM, which screens candidate starts:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 148 |
+| library defaults | 53.60% | 692 | 16594 | 80818 | 2018 |
+| truth x/div 5 | 66.10% | 554 | 5597 | 37704 | 1148 |
+| **ml guess** | **99.00%** | **0** | **66** | **1797** | **147** |
+
+Relative error of the ml guess, before fitting (%):
+| | `R0.r` | `R1.r` | `CPE1.q` | `CPE1.alpha` | `R2.r` | `W2.aw` | `CPE2.q` | `CPE2.alpha` |
+|---|---|---|---|---|---|---|---|---|
+| median | 1.3 | 2.5 | 4.7 | 0.9 | 8.1 | 5.7 | 10.6 | 3.4 |
+| p90 | 4.7 | 15.6 | 23.9 | 4.7 | 42.9 | 41.6 | 58.6 | 16.2 |
+| p99 | 58.1 | 66.7 | 71.1 | 14.1 | 149.4 | 171.9 | 194.2 | 36.9 |
+</details>
+<!-- /results:sei_randles -->
+
+### `sei_randles_wo`
+
+<!-- results:sei_randles_wo -->
+<details>
+<summary>Show details</summary>
+
+`R0-(R1,CPE1)-(R2-Wo2,CPE2)`, 1000 synthetic spectra. Inference costs 2.48 ms/spectrum against 14.71 ms for the fit it starts.
+
+Plain LM:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 276 |
+| library defaults | 23.20% | 322 | 1504 | 7004 | 676 |
+| truth x/div 5 | 26.00% | 192 | 730 | 5683 | 401 |
+| **ml guess** | **91.30%** | **16** | **252** | **5904** | **257** |
+
+`Circuit.fit()` / smart LM, which screens candidate starts:
+| source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
+|---|---|---|---|---|---|
+| floor (truth) | 100.00% | 0 | 0 | 0 | 397 |
+| library defaults | 41.40% | 928 | 43062 | 140937 | 4856 |
+| truth x/div 5 | 52.60% | 746 | 17284 | 54826 | 3144 |
+| **ml guess** | **91.00%** | **19** | **1094** | **38252** | **414** |
+
+Relative error of the ml guess, before fitting (%):
+| | `R0.r` | `R1.r` | `CPE1.q` | `CPE1.alpha` | `R2.r` | `Wo2.z0` | `Wo2.tau` | `CPE2.q` | `CPE2.alpha` |
+|---|---|---|---|---|---|---|---|---|---|
+| median | 0.6 | 1.7 | 3.2 | 0.6 | 23.2 | 46.9 | 49.0 | 5.6 | 1.2 |
+| p90 | 4.8 | 11.9 | 20.4 | 4.1 | 84.2 | 255.1 | 306.0 | 43.9 | 11.6 |
+| p99 | 63.9 | 50.1 | 97.2 | 16.0 | 250.3 | 1419.4 | 5491.2 | 226.0 | 32.2 |
+</details>
+<!-- /results:sei_randles_wo -->
+
+
+### Benchmarks against real data
+
+### `two_rq_l`
+
+<!-- results:two_rq_l_real -->
+<details>
+<summary>Show details</summary>
+
+`two_rq_l` against 201 measured spectra. Ground truth is not known, so 'converged' means within tolerance of the best chi-square reached.
+
+| source of initial parameters | converged | med sweeps | med ms | med chi2 |
+|---|---|---|---|---|
+| library defaults | 93.03% | 5038 | 27.87 | 2.081e-03 |
+| **ml guess** | **95.52%** | **2961** | **16.98** | **2.021e-03** |
+| differential_evolution | 67.16% | 203285 | 1288.50 | 3.321e-03 |
+</details>
+<!-- /results:two_rq_l_real -->
 
 ## Training
 
 ### Model
 
-All models use a 1D convolutional neural network over log-frequency.
-Shifting a time constant translates features along that axis, so we use a
-translation equivariance inductive bias.
-Stem convolution, four residual blocks at dilations 1/2/4/8, mean+max pooling, a
-three-layer head emitting a mean and log-variance per parameter.
+All models use a 1D convolutional neural network over log-frequency, starting
+with a 3x64 matrix of normalized |Z|, phase, and frequency.
 
-`model.Config` sets the width and is stored in the checkpoint.
-For the `randles` circuit, the 68k parameter model is used, which is smaller,
-faster, and performs just as well.
+Shifting a time constant translates features in frequency, so 1D
+convolution along the frequency axis works well (translation equivariance
+inductive bias).
 
-| channels / head | weights | converged | excess med | p99 | inference |
-|---|---|---|---|---|---|
-| **32 / 128** | **68.6k** | **100%** | **0** | **4** | **0.71 ms** |
-| 64 / 256 | 268k | 100% | 0 | 7 | 2.27 ms |
+Convolution starts a stem from the 3 input channels to $x$ 'feature' channels,
+followed by four residual blocks with dilations 1/2/4/8, then mean+max pooling
+over the frequency axis to get a $2x$ length vector (plus 2 scaling constants).
+
+Then a 3-layer 'head' multiplies to a width $y$, then emits a mean and
+log-variance per parameter.
+
+`model.Config` sets the widths $x$ and $y$ and is stored in the checkpoint. The
+width is a compromise between having fast/small model vs accuracy. `rc` uses
+16 / 64, the two `sei_randles` circuits use 64 / 256, and the rest 32 / 128. 
+
+| channels / head | weights | file | inference |
+|---|---|---|---|
+| 16 / 64 | 17.7k | 36 KiB | 0.23 ms |
+| 32 / 128 | 68.6k | 136 KiB | 0.70 ms |
+| 64 / 256 | 269k | 529 KiB | 2.41 ms |
 
 ### Input
 
@@ -138,7 +274,7 @@ point count.
 The frequencies, impedance, and the parameters are all renomalised so the model
 only needs to learn the curve shape, and not the scale.
 
-Impedance is invariant under `Z -> k*Z` and `w -> w/s` when parameters are
+Impedance is invariant under `Z -> k*Z` and `w -> w/w_c` when parameters are
 transformed to match.
 
 Each parameter picks up the scales as
@@ -185,24 +321,17 @@ scale are randomised to exercise the normalisation. Noise is proportional to
 Point dropout, outliers and a series inductance term exist behind flags in
 `PriorConfig`, all off by default.
 
-From `inspect_priors.py`: the CPE arc lies inside the window for 100% of samples
-and the Warburg onset for 78%. Relative standard error at the true parameters,
-from the circuit Jacobian, is 0.005–0.039 median, and 6.4% of spectra have at
-least one parameter that is not meaningfully constrained.
-
 ### Loss
 
 ```
 L = residual + lambda * nll,   lambda: 1.0 -> 0.02
 ```
 
-The residual term is the modulus-weighted residual of the guessed curve against the
-observed one, matching what the optimiser itself minimises. `randles_torch.py`
-provides a differentiable Randles for this.
+The residual is the same as the fit - a modulus-weighted residual of the guessed curve vs observed.
 
 The negative log-likelihood (NLL) term keeps gradient available where the
 residual has plateaus. E.g. a time constant several decades off gives a curve
-with no observable arc in the window, where `d(residual)/d(log tau)` vanishes —
+with no observable arc in the window, where `d(residual)/d(log tau)` vanishes -
 and keeps the log-variance head trained. It never decays to zero, so an
 out-of-range alpha always has a gradient pulling it back.
 
