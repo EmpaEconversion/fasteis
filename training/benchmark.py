@@ -35,9 +35,7 @@ def make_guess_init_params(circuit_str: str, weights: str | None = None):
     built = fasteis.Circuit(circuit_str)
 
     def guess_init_params(spectrum: priors.Spectrum) -> np.ndarray:
-        return np.array(
-            built.guess(list(spectrum.freqs), list(spectrum.z), weights=weights)
-        )
+        return np.array(built.guess(list(spectrum.freqs), list(spectrum.z), weights=weights))
 
     return guess_init_params
 

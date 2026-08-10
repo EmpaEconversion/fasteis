@@ -156,9 +156,7 @@ def main() -> None:
     args = p.parse_args()
 
     circuit = circuits.get(args.circuit)
-    shape = model.Config(
-        channels=args.channels, blocks=args.blocks, head_width=args.head_width
-    )
+    shape = model.Config(channels=args.channels, blocks=args.blocks, head_width=args.head_width)
     args.out = args.out or Path("training/checkpoints") / f"{circuit.name}_{shape.tag()}"
     torch.manual_seed(args.seed)
     device = torch.device(args.device)
@@ -237,9 +235,7 @@ def main() -> None:
             # p90 breaks ties: two checkpoints often match on convergence and
             # median excess while differing a lot in the tail
             score = (
-                (1.0 - summary.converged) * 1e6
-                + summary.median_excess * 1e3
-                + summary.p90_excess
+                (1.0 - summary.converged) * 1e6 + summary.median_excess * 1e3 + summary.p90_excess
             )
             if score < best:
                 best = score

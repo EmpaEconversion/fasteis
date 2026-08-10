@@ -464,9 +464,7 @@ class ArcChain(TrainingCircuit):
             # the corner where it turns from 45 degrees to a capacitive tail
             w_diff = w_window * 10.0 ** rng.uniform(*self.log_wd_over_wc)
             values[f"Wo{self.n_arcs}.tau"] = 1.0 / w_diff
-            values[f"Wo{self.n_arcs}.z0"] = r_last * 10.0 ** rng.uniform(
-                *self.log_z0_over_r
-            )
+            values[f"Wo{self.n_arcs}.z0"] = r_last * 10.0 ** rng.uniform(*self.log_z0_over_r)
 
         scale = 10.0 ** rng.uniform(*cfg.log_impedance_scale)
         out = np.array([values[n] for n in self.param_names])
