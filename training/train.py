@@ -154,7 +154,7 @@ def main() -> None:
     p.add_argument("--workers", type=int, default=4)
     p.add_argument("--prefetch", type=int, default=4, help="batches queued per worker")
     p.add_argument("--eval-every", type=int, default=2000)
-    p.add_argument("--eval-n", type=int, default=300)
+    p.add_argument("--eval-n", type=int, default=10_000)
     p.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     p.add_argument("--channels", type=int, default=model.DEFAULT.channels)
     p.add_argument("--blocks", type=int, default=model.DEFAULT.blocks)
