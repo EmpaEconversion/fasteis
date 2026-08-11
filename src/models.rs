@@ -1,10 +1,9 @@
 //! Registry of circuits with trained initial-parameter models.
 
 use std::collections::HashMap;
-use std::mem::discriminant;
 use std::sync::{Mutex, OnceLock};
 
-use crate::circuit::{Node, Series};
+use crate::circuit::Node;
 use crate::nn::{self, NnError};
 
 pub struct Model {
@@ -135,7 +134,7 @@ pub fn names() -> Vec<&'static str> {
     all().iter().map(|m| m.name).collect()
 }
 
-/// `"randles"` -> `"R0-(CPE1,R1-W1)"`. `None` for anything else, which
+/// `"randles"` -> `"R0-(R1-W1,CPE1)"`. `None` for anything else, which
 /// `Circuit::new` then treats as a topology string.
 pub fn resolve_alias(name: &str) -> Option<&'static str> {
     let trimmed = name.trim();
@@ -145,33 +144,117 @@ pub fn resolve_alias(name: &str) -> Option<&'static str> {
         .map(|m| m.circuit)
 }
 
-/// The model trained for `topology`, if there is one.
-///
-/// Matching is structural but order-sensitive: `R0-(CPE1,R1-W1)` matches, and so
-/// does the same tree with different labels or parameter values, but a
-/// topologically equivalent circuit written with its components in another order
-/// does not. Labels and values are ignored; only element types and nesting matter.
-pub fn find_for_topology(topology: &[Node]) -> Option<&'static Model> {
-    all().iter().find(|m| {
-        crate::circuit::parse(m.circuit)
-            .map(|trained| same_topology(&trained, topology))
-            .unwrap_or(false)
-    })
+/// One node of a parsed tree, annotated with where its parameters sit in that
+/// tree's `param_names()` order and with a key describing its shape alone.
+struct Shape {
+    key: String,
+    kind: Kind,
 }
 
-fn same_topology(a: &[Node], b: &[Node]) -> bool {
-    a.len() == b.len()
-        && a.iter().zip(b).all(|(x, y)| match (x, y) {
-            (Node::Element(ea, _), Node::Element(eb, _)) => discriminant(ea) == discriminant(eb),
-            (Node::Parallel(ba), Node::Parallel(bb)) => {
-                ba.len() == bb.len()
-                    && ba
-                        .iter()
-                        .zip(bb)
-                        .all(|(s, t): (&Series, &Series)| same_topology(s, t))
+enum Kind {
+    /// `start..start + len` in `param_names()` order.
+    Leaf {
+        start: usize,
+        len: usize,
+    },
+    Parallel(Vec<Vec<Shape>>),
+}
+
+/// Shapes of `series`' nodes, sorted into canonical order.
+///
+/// `cursor` walks the tree in the unsorted traversal order `param_names()` uses,
+/// so each leaf keeps its original parameter index across the sort.
+fn shapes(series: &[Node], cursor: &mut usize) -> Vec<Shape> {
+    let mut out: Vec<Shape> = series.iter().map(|node| shape(node, cursor)).collect();
+    out.sort_by(|a, b| a.key.cmp(&b.key));
+    out
+}
+
+fn shape(node: &Node, cursor: &mut usize) -> Shape {
+    match node {
+        Node::Element(element, _) => {
+            let len = element.param_names().len();
+            let start = *cursor;
+            *cursor += len;
+            Shape {
+                key: element.type_tag().to_string(),
+                kind: Kind::Leaf { start, len },
             }
-            _ => false,
-        })
+        }
+        Node::Parallel(branches) => {
+            let mut branches: Vec<Vec<Shape>> =
+                branches.iter().map(|b| shapes(b, cursor)).collect();
+            branches.sort_by_cached_key(|b| series_key(b));
+            let joined: Vec<String> = branches.iter().map(|b| series_key(b)).collect();
+            Shape {
+                key: format!("({})", joined.join(",")),
+                kind: Kind::Parallel(branches),
+            }
+        }
+    }
+}
+
+fn series_key(series: &[Shape]) -> String {
+    let joined: Vec<&str> = series.iter().map(|s| s.key.as_str()).collect();
+    format!("[{}]", joined.join(","))
+}
+
+/// Parameter spans of every leaf, in canonical order.
+fn spans(series: &[Shape], out: &mut Vec<(usize, usize)>) {
+    for node in series {
+        match &node.kind {
+            Kind::Leaf { start, len } => out.push((*start, *len)),
+            Kind::Parallel(branches) => branches.iter().for_each(|b| spans(b, out)),
+        }
+    }
+}
+
+fn canonical(series: &[Node]) -> (String, Vec<(usize, usize)>) {
+    let mut cursor = 0;
+    let sorted = shapes(series, &mut cursor);
+    let key = series_key(&sorted);
+    let mut leaves = Vec::new();
+    spans(&sorted, &mut leaves);
+    (key, leaves)
+}
+
+/// Match the 'trained' and given circuits, so model predictions get mapped
+/// back to the ordering and labels supplied by the user.
+/// Order does not matter in the circuits: `(R2,C2)-R1` matches `R1-(R2,C2)`.
+/// Labels and values do not matter, only the element types and their nesting.
+/// For indistinguishable elements, e.g. the two arcs of `R0-(R1,C1)-(R2,C2)`,
+/// they pair up in written order.
+/// Returns None if they do not match.
+pub fn match_topology(trained: &[Node], topology: &[Node]) -> Option<Vec<usize>> {
+    let (trained_key, trained_leaves) = canonical(trained);
+    let (topology_key, topology_leaves) = canonical(topology);
+    if trained_key != topology_key {
+        return None;
+    }
+
+    let width = topology_leaves.iter().map(|(_, len)| len).sum();
+    let mut permutation = vec![0usize; width];
+    for (&(from, len), &(to, _)) in trained_leaves.iter().zip(&topology_leaves) {
+        for offset in 0..len {
+            permutation[to + offset] = from + offset;
+        }
+    }
+    Some(permutation)
+}
+
+/// Reorder `values`, given in the trained circuit's order, into the order of the
+/// circuit `permutation` was matched against.
+pub fn apply_permutation(permutation: &[usize], values: &[f64]) -> Vec<f64> {
+    permutation.iter().map(|&i| values[i]).collect()
+}
+
+/// The model trained for `topology`, with the permutation taking its parameter
+/// order to `topology`'s. See `match_topology` for what counts as a match.
+pub fn find_for_topology(topology: &[Node]) -> Option<(&'static Model, Vec<usize>)> {
+    all().iter().find_map(|m| {
+        let trained = crate::circuit::parse(m.circuit).ok()?;
+        Some((m, match_topology(&trained, topology)?))
+    })
 }
 
 /// Weights loaded from a path rather than embedded, keyed by that path.
@@ -181,7 +264,10 @@ fn same_topology(a: &[Node], b: &[Node]) -> bool {
 /// different circuit cannot be used by accident.
 static EXTERNAL: OnceLock<Mutex<HashMap<String, &'static nn::Guesser>>> = OnceLock::new();
 
-pub fn load_external(path: &str, topology: &[Node]) -> Result<&'static nn::Guesser, NnError> {
+pub fn load_external(
+    path: &str,
+    topology: &[Node],
+) -> Result<(&'static nn::Guesser, Vec<usize>), NnError> {
     let cache = EXTERNAL.get_or_init(|| Mutex::new(HashMap::new()));
     let mut map = cache.lock().expect("weights cache poisoned");
 
@@ -196,13 +282,13 @@ pub fn load_external(path: &str, topology: &[Node]) -> Result<&'static nn::Guess
 
     let trained = crate::circuit::parse(guesser.circuit())
         .map_err(|_| NnError::BadValue(format!("circuit {:?} in {path}", guesser.circuit())))?;
-    if !same_topology(&trained, topology) {
-        return Err(NnError::BadValue(format!(
+    let permutation = match_topology(&trained, topology).ok_or_else(|| {
+        NnError::BadValue(format!(
             "{path} was trained for {:?}, which is a different circuit",
             guesser.circuit()
-        )));
-    }
-    Ok(guesser)
+        ))
+    })?;
+    Ok((guesser, permutation))
 }
 
 /// Message for a circuit that has no trained weights.
@@ -230,7 +316,9 @@ mod tests {
             assert_eq!(guesser.circuit(), model.circuit);
 
             let topology = parse(model.circuit).expect("registry circuit must parse");
-            assert!(std::ptr::eq(find_for_topology(&topology).unwrap(), model));
+            let (found, permutation) = find_for_topology(&topology).unwrap();
+            assert!(std::ptr::eq(found, model));
+            assert_eq!(permutation, (0..permutation.len()).collect::<Vec<_>>());
             assert_eq!(
                 guesser.param_names(),
                 crate::circuit::param_names(&topology)
@@ -240,9 +328,9 @@ mod tests {
 
     #[test]
     fn alias_resolves_case_insensitively_and_ignores_surrounding_space() {
-        assert_eq!(resolve_alias("randles"), Some("R0-(CPE1,R1-W1)"));
-        assert_eq!(resolve_alias("Randles"), Some("R0-(CPE1,R1-W1)"));
-        assert_eq!(resolve_alias("  randles  "), Some("R0-(CPE1,R1-W1)"));
+        assert_eq!(resolve_alias("randles"), Some("R0-(R1-W1,CPE1)"));
+        assert_eq!(resolve_alias("Randles"), Some("R0-(R1-W1,CPE1)"));
+        assert_eq!(resolve_alias("  randles  "), Some("R0-(R1-W1,CPE1)"));
         assert_eq!(resolve_alias("R0-C1"), None);
     }
 
@@ -250,17 +338,65 @@ mod tests {
     fn topology_match_ignores_labels_and_values() {
         let a = parse("R0-(CPE1,R1-W1)").unwrap();
         let b = parse("R7-(CPE2,R9-W4)").unwrap();
-        assert!(same_topology(&a, &b));
+        assert_eq!(match_topology(&a, &b), Some(vec![0, 1, 2, 3, 4]));
     }
 
     #[test]
-    fn topology_match_rejects_different_elements_and_ordering() {
+    fn topology_match_rejects_different_elements_and_nesting() {
         let trained = parse("R0-(CPE1,R1-W1)").unwrap();
 
-        assert!(!same_topology(&trained, &parse("R0-(C1,R1-W1)").unwrap()));
-        assert!(!same_topology(&trained, &parse("R0-(R1-W1,CPE1)").unwrap()));
-        assert!(!same_topology(&trained, &parse("R0-(CPE1,R1)").unwrap()));
-        assert!(!same_topology(&trained, &parse("R0-CPE1-R1-W1").unwrap()));
+        assert!(match_topology(&trained, &parse("R0-(C1,R1-W1)").unwrap()).is_none());
+        assert!(match_topology(&trained, &parse("R0-(CPE1,R1)").unwrap()).is_none());
+        assert!(match_topology(&trained, &parse("R0-CPE1-R1-W1").unwrap()).is_none());
+    }
+
+    #[test]
+    fn topology_match_ignores_order_of_series_and_parallel_siblings() {
+        let trained = parse("R0-(R1,C1)").unwrap();
+        // param_names: R0.r, R1.r, C1.c
+        for (reordered, expected) in [
+            ("R0-(C1,R1)", vec![0, 2, 1]),
+            ("(R1,C1)-R0", vec![1, 2, 0]),
+            ("(C1,R1)-R0", vec![2, 1, 0]),
+        ] {
+            let topology = parse(reordered).unwrap();
+            assert_eq!(
+                match_topology(&trained, &topology),
+                Some(expected),
+                "{reordered}"
+            );
+        }
+    }
+
+    #[test]
+    fn permutation_moves_each_value_to_the_parameter_of_the_same_type() {
+        let trained = parse("L0-R0-(R1,CPE1)").unwrap();
+        let topology = parse("(CPE9,R9)-R8-L8").unwrap();
+        let permutation = match_topology(&trained, &topology).unwrap();
+
+        // one distinguishable value per parameter of the trained circuit
+        let values: Vec<f64> = (0..crate::circuit::param_count(&trained))
+            .map(|i| i as f64)
+            .collect();
+        let moved = apply_permutation(&permutation, &values);
+
+        let by_name: Vec<(String, f64)> = crate::circuit::param_names(&topology)
+            .into_iter()
+            .zip(moved)
+            .collect();
+        let trained_names = crate::circuit::param_names(&trained);
+        for (name, value) in by_name {
+            let suffix = name.split_once('.').unwrap().1;
+            assert!(trained_names[value as usize].ends_with(suffix), "{name}");
+        }
+    }
+
+    #[test]
+    fn identical_siblings_pair_up_in_written_order() {
+        let trained = parse("R0-(R1,C1)-(R2,C2)").unwrap();
+        let topology = parse("R0-(R1,C1)-(R2,C2)").unwrap();
+        let permutation = match_topology(&trained, &topology).unwrap();
+        assert_eq!(permutation, vec![0, 1, 2, 3, 4]);
     }
 
     #[test]

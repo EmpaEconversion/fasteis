@@ -85,11 +85,29 @@ def test_topology_matches_regardless_of_labels() -> None:
 
 @pytest.mark.parametrize(
     "topology",
+    ["R0-(CPE1,R1-W1)", "(CPE1,W1-R1)-R0", "(R1-W1,CPE1)-R0"],
+)
+def test_topology_matches_regardless_of_element_order(topology: str) -> None:
+    """Series and parallel elements commute, and the guess is reordered to suit."""
+    spectrum = priors.sample(np.random.default_rng(11), RANDLES)
+    f, z = list(spectrum.freqs), list(spectrum.z)
+
+    reference = fasteis.Circuit("randles")
+    expected = dict(zip(reference.param_names(), reference.guess(f, z), strict=True))
+
+    circuit = fasteis.Circuit(topology)
+    guess = dict(zip(circuit.param_names(), circuit.guess(f, z), strict=True))
+
+    assert guess == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize(
+    "topology",
     [
         "R0-C1",  # nothing like it
         "R0-(C1,R1-W1)",  # C where the model wants CPE
-        "R0-(CPE1,R1-W1)",  # same elements, branches swapped
         "R0-CPE1-R1-W1",  # same elements, no parallel
+        "(R0-R1-W1,CPE1)",  # same elements, R0 moved inside the branch
     ],
 )
 def test_untrained_topologies_report_what_is_available(topology: str) -> None:

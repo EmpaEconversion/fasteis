@@ -19,18 +19,23 @@ fn guess_params(
     impedances: &[Complex64],
     weights: Option<&str>,
 ) -> PyResult<Vec<f64>> {
-    let guesser = match weights {
+    let (guesser, permutation) = match weights {
         Some(path) => {
             models::load_external(path, node).map_err(|e| PyValueError::new_err(e.to_string()))?
         }
-        None => models::find_for_topology(node)
-            .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?
-            .guesser()
-            .map_err(|e| PyValueError::new_err(e.to_string()))?,
+        None => {
+            let (model, permutation) = models::find_for_topology(node)
+                .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?;
+            let guesser = model
+                .guesser()
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            (guesser, permutation)
+        }
     };
-    guesser
+    let values = guesser
         .guess(frequencies, impedances)
-        .map_err(|e| PyValueError::new_err(e.to_string()))
+        .map_err(|e| PyValueError::new_err(e.to_string()))?;
+    Ok(models::apply_permutation(&permutation, &values))
 }
 
 /// Below this many frequency points, rayon's ~20 us overhead outweighs
@@ -205,6 +210,9 @@ impl Circuit {
 
     /// Machine-learning guess of starting parameters for this circuit's
     /// topology, in `param_names()` order.
+    ///
+    /// Series and parallel elements may be written with any order and labels:
+    /// `(R1,C2)-R3` uses the same model as `R0-(R1,C1)`.
     ///
     /// `weights` loads a `.eisnn` file from disk instead of looking for a
     /// bundled model.

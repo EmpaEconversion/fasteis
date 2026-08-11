@@ -23,6 +23,10 @@ parameters, then normal least-squares fitting goes from there.
 `Circuit.guess(freqs, z)` returns the parameter vector alone, in
 `param_names()` order.
 
+The lookup ignores labels, parameter values, and the order elements are written
+in, so `(C1,R2)-R3` finds the same model as `R0-(R1,C1)` and the guess comes
+back reordered to match. Only element types and nesting have to agree.
+
 `Circuit.ml_circuits()` lists what is currently available.
 
 ## Models
