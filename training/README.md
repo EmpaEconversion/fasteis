@@ -43,7 +43,7 @@ Circuits are trained on synthetic data, and summarised in the table below.
 | `two_rc_l` | `L0-R0-(R1,C1)-(R2,C2)` | 6 | 71.5% | **100.0%** | 53| **12** | 13 |
 | `two_rq` | `R0-(R1,CPE1)-(R2,CPE2)` | 7 | 55.1% | **99.6%** | 76| **15** | 62 |
 | `two_rq_l` | `L0-R0-(R1,CPE1)-(R2,CPE2)` | 8 | 50.3% | **98.8%** | 86| **17** | 188 |
-| `randles` | `R0-(CPE1,R1-W1)` | 5 | 69.8% | **99.9%** | 45| **10** | 11 |
+| `randles` | `R0-(R1-W1,CPE1)` | 5 | 70.8% | **99.9%** | 45| **0** | 11 |
 | `sei_randles` | `R0-(R1,CPE1)-(R2-W2,CPE2)` | 8 | 41.6% | **99.1%** | 103| **0** | 52 |
 | `sei_randles_wo` | `R0-(R1,CPE1)-(R2-Wo2,CPE2)` | 9 | 26.0% | **91.3%** | 276| **16** | 252 |
 <!-- /results:library -->
@@ -122,30 +122,30 @@ Relative error of the ml guess, before fitting (%):
 <details>
 <summary>Show details</summary>
 
-`R0-(CPE1,R1-W1)`, 1000 synthetic spectra. Inference costs 1.72 ms/spectrum against 2.64 ms for the fit it starts.
+`R0-(R1-W1,CPE1)`, 2000 synthetic spectra. Inference costs 0.73 ms/spectrum against 1.25 ms for the fit it starts.
 
 Plain LM:
 | source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
 | floor (truth) | 100.00% | 0 | 0 | 0 | 45 |
-| library defaults | 55.20% | 102 | 284 | 575 | 199 |
-| truth x/div 5 | 69.80% | 79 | 206 | 522 | 124 |
-| **ml guess** | **99.90%** | **10** | **11** | **66** | **45** |
+| library defaults | 57.55% | 102 | 318 | 726 | 204 |
+| truth x/div 5 | 70.75% | 78 | 205 | 452 | 124 |
+| **ml guess** | **99.85%** | **0** | **11** | **57** | **45** |
 
 `Circuit.fit()` / smart LM, which screens candidate starts:
 | source of initial parameters | converged | excess med | p90 | p99 | med sweeps |
 |---|---|---|---|---|---|
 | floor (truth) | 100.00% | 0 | 0 | 0 | 66 |
-| library defaults | 78.40% | 169 | 1795 | 13150 | 325 |
-| truth x/div 5 | 89.10% | 102 | 671 | 3637 | 190 |
-| **ml guess** | **99.90%** | **10** | **11** | **66** | **66** |
+| library defaults | 78.00% | 170 | 1884 | 19384 | 333 |
+| truth x/div 5 | 88.15% | 103 | 720 | 8770 | 200 |
+| **ml guess** | **99.85%** | **0** | **11** | **65** | **66** |
 
 Relative error of the ml guess, before fitting (%):
-| | `R0.r` | `CPE1.q` | `CPE1.alpha` | `R1.r` | `W1.aw` |
+| | `R0.r` | `R1.r` | `W1.aw` | `CPE1.q` | `CPE1.alpha` |
 |---|---|---|---|---|---|
-| median | 1.2 | 3.3 | 0.7 | 2.9 | 1.4 |
-| p90 | 4.0 | 16.4 | 3.5 | 24.9 | 9.6 |
-| p99 | 55.1 | 81.8 | 12.5 | 119.2 | 39.2 |
+| median | 1.4 | 1.5 | 1.3 | 3.5 | 0.6 |
+| p90 | 3.7 | 25.6 | 9.7 | 16.5 | 3.4 |
+| p99 | 34.1 | 101.6 | 46.7 | 54.0 | 10.9 |
 </details>
 <!-- /results:randles -->
 
