@@ -55,17 +55,72 @@ impl Model {
     }
 }
 
-static MODELS: [Model; 2] = [
+/// Ordered simplest first; this is the order `ml_circuits()` reports.
+static MODELS: [Model; 11] = [
     Model {
-        name: "randles",
-        circuit: "R0-(CPE1,R1-W1)",
-        bytes: include_bytes!("models/randles.eisnn"),
+        name: "rc",
+        circuit: "R0-(R1,C1)",
+        bytes: include_bytes!("models/rc.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "rc_l",
+        circuit: "L0-R0-(R1,C1)",
+        bytes: include_bytes!("models/rc_l.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "rq",
+        circuit: "R0-(R1,CPE1)",
+        bytes: include_bytes!("models/rq.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "rq_l",
+        circuit: "L0-R0-(R1,CPE1)",
+        bytes: include_bytes!("models/rq_l.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "two_rc",
+        circuit: "R0-(R1,C1)-(R2,C2)",
+        bytes: include_bytes!("models/two_rc.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "two_rc_l",
+        circuit: "L0-R0-(R1,C1)-(R2,C2)",
+        bytes: include_bytes!("models/two_rc_l.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "two_rq",
+        circuit: "R0-(R1,CPE1)-(R2,CPE2)",
+        bytes: include_bytes!("models/two_rq.eisnn"),
         guesser: OnceLock::new(),
     },
     Model {
         name: "two_rq_l",
         circuit: "L0-R0-(R1,CPE1)-(R2,CPE2)",
         bytes: include_bytes!("models/two_rq_l.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "randles",
+        circuit: "R0-(R1-W1,CPE1)",
+        bytes: include_bytes!("models/randles.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "sei_randles",
+        circuit: "R0-(R1,CPE1)-(R2-W2,CPE2)",
+        bytes: include_bytes!("models/sei_randles.eisnn"),
+        guesser: OnceLock::new(),
+    },
+    Model {
+        name: "sei_randles_wo",
+        circuit: "R0-(R1,CPE1)-(R2-Wo2,CPE2)",
+        bytes: include_bytes!("models/sei_randles_wo.eisnn"),
         guesser: OnceLock::new(),
     },
 ];

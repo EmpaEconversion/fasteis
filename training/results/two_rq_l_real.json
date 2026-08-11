@@ -1,0 +1,29 @@
+{
+  "circuit": "two_rq_l",
+  "data": "reda_20338409.parquet",
+  "n_spectra": 201,
+  "generated": "2026-08-10T08:20:40+00:00",
+  "strategies": [
+    {
+      "name": "library defaults",
+      "converged": 0.9303482587064676,
+      "median_sweeps": 5038.0,
+      "median_ms": 27.86889998242259,
+      "median_chi_square": 0.0020809057866567125
+    },
+    {
+      "name": "ml guess",
+      "converged": 0.9552238805970149,
+      "median_sweeps": 2961.0,
+      "median_ms": 16.982699977234006,
+      "median_chi_square": 0.0020214463093148932
+    },
+    {
+      "name": "differential_evolution",
+      "converged": 0.6716417910447762,
+      "median_sweeps": 203285.0,
+      "median_ms": 1288.5012000333518,
+      "median_chi_square": 0.003320668705462358
+    }
+  ]
+}

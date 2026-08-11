@@ -1,11 +1,11 @@
 {
   "circuit": "randles",
-  "circuit_str": "R0-(CPE1,R1-W1)",
+  "circuit_str": "R0-(R1-W1,CPE1)",
   "n_spectra": 2000,
-  "generated": "2026-08-08T12:10:34+00:00",
+  "generated": "2026-08-11T09:42:36+00:00",
   "weights_bytes": 139015,
-  "inference_ms": 0.7478955003898591,
-  "floor_fit_ms": 1.1807088477653451,
+  "inference_ms": 0.7268610002938658,
+  "floor_fit_ms": 1.250236302264966,
   "fitters": {
     "plain_lm": [
       {
@@ -15,34 +15,34 @@
         "p90_excess": 0.0,
         "p99_excess": 0.0,
         "median_evaluations": 45.0,
-        "total_seconds": 2.439386503188871
+        "total_seconds": 2.871415503555909
       },
       {
         "name": "library defaults",
-        "converged": 0.3655,
-        "median_excess": 246.0,
-        "p90_excess": 563.0,
-        "p99_excess": 887.800000000002,
-        "median_evaluations": 258.0,
-        "total_seconds": 12.167966701555997
+        "converged": 0.5755,
+        "median_excess": 102.0,
+        "p90_excess": 318.0,
+        "p99_excess": 726.0,
+        "median_evaluations": 204.0,
+        "total_seconds": 14.708856995450333
       },
       {
         "name": "truth x/div 5",
-        "converged": 0.702,
-        "median_excess": 79.0,
-        "p90_excess": 193.0,
-        "p99_excess": 388.82000000000016,
+        "converged": 0.7075,
+        "median_excess": 78.0,
+        "p90_excess": 204.60000000000014,
+        "p99_excess": 452.1599999999994,
         "median_evaluations": 124.0,
-        "total_seconds": 6.59688740153797
+        "total_seconds": 7.848184997215867
       },
       {
         "name": "ml guess",
-        "converged": 0.9995,
-        "median_excess": 10.0,
+        "converged": 0.9985,
+        "median_excess": 0.0,
         "p90_excess": 11.0,
-        "p99_excess": 58.11999999999989,
+        "p99_excess": 57.07999999999993,
         "median_evaluations": 45.0,
-        "total_seconds": 2.6343447003746405
+        "total_seconds": 2.728983597131446
       }
     ],
     "circuit_fit": [
@@ -53,62 +53,62 @@
         "p90_excess": 0.0,
         "p99_excess": 0.0,
         "median_evaluations": 66.0,
-        "total_seconds": 1.011940199532546
+        "total_seconds": 1.188432005001232
       },
       {
         "name": "library defaults",
-        "converged": 0.7535,
-        "median_excess": 711.0,
-        "p90_excess": 2773.8,
-        "p99_excess": 11936.860000000126,
-        "median_evaluations": 1077.5,
-        "total_seconds": 20.71547109808307
+        "converged": 0.78,
+        "median_excess": 169.5,
+        "p90_excess": 1883.9000000000012,
+        "p99_excess": 19384.23,
+        "median_evaluations": 333.0,
+        "total_seconds": 30.851649501128122
       },
       {
         "name": "truth x/div 5",
-        "converged": 0.8845,
-        "median_excess": 102.0,
-        "p90_excess": 686.6000000000001,
-        "p99_excess": 3514.5999999999904,
-        "median_evaluations": 192.5,
-        "total_seconds": 6.939381502801552
+        "converged": 0.8815,
+        "median_excess": 103.0,
+        "p90_excess": 720.3999999999999,
+        "p99_excess": 8770.019999999324,
+        "median_evaluations": 200.5,
+        "total_seconds": 9.404928695876151
       },
       {
         "name": "ml guess",
-        "converged": 0.9995,
-        "median_excess": 10.0,
-        "p90_excess": 12.0,
-        "p99_excess": 66.0,
+        "converged": 0.9985,
+        "median_excess": 0.0,
+        "p90_excess": 11.0,
+        "p99_excess": 65.07999999999993,
         "median_evaluations": 66.0,
-        "total_seconds": 1.1341032000491396
+        "total_seconds": 1.4244336006231606
       }
     ]
   },
   "param_error_pct": {
     "R0.r": {
-      "median": 1.1367099412974702,
-      "p90": 3.579038486272374,
-      "p99": 44.15733814776179
-    },
-    "CPE1.q": {
-      "median": 3.3264303155719324,
-      "p90": 15.826852416031874,
-      "p99": 58.81359097746914
-    },
-    "CPE1.alpha": {
-      "median": 0.6119105837507965,
-      "p90": 3.454938988299213,
-      "p99": 12.14493292302831
+      "median": 1.3594232045942456,
+      "p90": 3.6697868146838677,
+      "p99": 34.0721105019939
     },
     "R1.r": {
-      "median": 2.871427794553072,
-      "p90": 27.36766422297454,
-      "p99": 157.2198198764406
+      "median": 1.4994985293743546,
+      "p90": 25.623179635108784,
+      "p99": 101.58750491945626
     },
     "W1.aw": {
-      "median": 1.4282455015679152,
-      "p90": 10.507793753043787,
-      "p99": 42.507367656853624
+      "median": 1.3059130267294217,
+      "p90": 9.658609599405638,
+      "p99": 46.72871341068305
+    },
+    "CPE1.q": {
+      "median": 3.485914759402642,
+      "p90": 16.516716513367403,
+      "p99": 54.00976940911917
+    },
+    "CPE1.alpha": {
+      "median": 0.624115446065121,
+      "p90": 3.4498327768640027,
+      "p99": 10.874140382007441
     }
   }
 }

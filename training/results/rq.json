@@ -1,0 +1,109 @@
+{
+  "circuit": "rq",
+  "circuit_str": "R0-(R1,CPE1)",
+  "n_spectra": 1000,
+  "generated": "2026-08-10T06:08:27+00:00",
+  "weights_bytes": 138462,
+  "inference_ms": 1.5820609999354929,
+  "floor_fit_ms": 1.6344365056138486,
+  "fitters": {
+    "plain_lm": [
+      {
+        "name": "floor (truth)",
+        "converged": 1.0,
+        "median_excess": 0.0,
+        "p90_excess": 0.0,
+        "p99_excess": 0.0,
+        "median_evaluations": 28.0,
+        "total_seconds": 0.7760828984901309
+      },
+      {
+        "name": "library defaults",
+        "converged": 0.812,
+        "median_excess": 75.0,
+        "p90_excess": 185.89999999999998,
+        "p99_excess": 393.4599999999998,
+        "median_evaluations": 112.0,
+        "total_seconds": 3.1210393044166267
+      },
+      {
+        "name": "truth x/div 5",
+        "converged": 0.88,
+        "median_excess": 55.0,
+        "p90_excess": 121.0,
+        "p99_excess": 222.21000000000004,
+        "median_evaluations": 83.0,
+        "total_seconds": 3.8996023994404823
+      },
+      {
+        "name": "ml guess",
+        "converged": 1.0,
+        "median_excess": 0.0,
+        "p90_excess": 9.0,
+        "p99_excess": 18.0,
+        "median_evaluations": 37.0,
+        "total_seconds": 2.0880882998462766
+      }
+    ],
+    "circuit_fit": [
+      {
+        "name": "floor (truth)",
+        "converged": 1.0,
+        "median_excess": 0.0,
+        "p90_excess": 0.0,
+        "p99_excess": 0.0,
+        "median_evaluations": 47.0,
+        "total_seconds": 0.5028158978093415
+      },
+      {
+        "name": "library defaults",
+        "converged": 0.887,
+        "median_excess": 84.0,
+        "p90_excess": 452.79999999999995,
+        "p99_excess": 8964.28,
+        "median_evaluations": 148.0,
+        "total_seconds": 4.618013398721814
+      },
+      {
+        "name": "truth x/div 5",
+        "converged": 0.995,
+        "median_excess": 55.0,
+        "p90_excess": 182.4000000000001,
+        "p99_excess": 1355.5199999999977,
+        "median_evaluations": 106.0,
+        "total_seconds": 2.3518414974678308
+      },
+      {
+        "name": "ml guess",
+        "converged": 1.0,
+        "median_excess": 0.0,
+        "p90_excess": 9.0,
+        "p99_excess": 18.0,
+        "median_evaluations": 56.0,
+        "total_seconds": 0.6354700045194477
+      }
+    ]
+  },
+  "param_error_pct": {
+    "R0.r": {
+      "median": 0.6093301736343482,
+      "p90": 4.183703305311534,
+      "p99": 86.42754353131012
+    },
+    "R1.r": {
+      "median": 0.6729430765548661,
+      "p90": 2.5021089021275422,
+      "p99": 6.128094290528988
+    },
+    "CPE1.q": {
+      "median": 3.335177063817929,
+      "p90": 15.825895216442525,
+      "p99": 71.06479545164127
+    },
+    "CPE1.alpha": {
+      "median": 0.5328167074909684,
+      "p90": 2.783128683970622,
+      "p99": 7.964115536014785
+    }
+  }
+}
