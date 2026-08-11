@@ -150,76 +150,6 @@ def _j_pow(alpha: Tensor, w: Tensor) -> Tensor:
     return w**alpha * torch.complex(torch.cos(phase), torch.sin(phase))
 
 
-class TrainingRandles(TrainingCircuit):
-    """Randles circuit with constant phase element."""
-
-    def __init__(self) -> None:
-        """Init the object."""
-        self.name = "randles"
-        self.circuit_str = "R0-(CPE1,R1-W1)"
-        self.param_names = ("R0.r", "CPE1.q", "CPE1.alpha", "R1.r", "W1.aw")
-        self.linear_params = (2,)  # CPE1.alpha
-
-        # shape ranges, all relative to the measured window
-        self.log_r0_over_r1 = (-2.0, 0.5)
-        self.log_wc_tau = (-2.0, 2.0)  # arc position vs window centre
-        self.log_ww_over_wc = (-4.0, 0.5)  # diffusion onset vs window centre
-
-        self.scaling = np.array(
-            [
-                [1.0, 0.0, 0.0, -1],  # R0.r
-                [-1.0, 0.0, -1.0, 2],  # CPE1.q, exponent -alpha
-                [0.0, 0.0, 0.0, -1],  # CPE1.alpha
-                [1.0, 0.0, 0.0, -1],  # R1.r
-                [1.0, 0.5, 0.0, -1],  # W1.aw
-            ]
-        )
-
-    def scales_from_params(
-        self,
-        params: NDArray[np.float64],
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
-        """Charge-transfer resistance and CPE relaxation rate."""
-        params = np.atleast_2d(params)
-        r1 = params[:, 3]
-        alpha = params[:, 2]
-        tau = (r1 * params[:, 1]) ** (1.0 / alpha)
-        return r1, 1.0 / tau
-
-    def sample_params(
-        self, rng: np.random.Generator, cfg: PriorConfig, w_window: float
-    ) -> NDArray[np.float64]:
-        """Draw parameters positioned relative to the window centre `w_window`."""
-        alpha = cfg.draw_alpha(rng)
-        r1 = 1.0
-        r0 = r1 * 10.0 ** rng.uniform(*self.log_r0_over_r1)
-
-        tau = 10.0 ** rng.uniform(*self.log_wc_tau) / w_window
-        q = tau**alpha / r1
-
-        # the frequency where the Warburg magnitude reaches r1
-        w_warburg = w_window * 10.0 ** rng.uniform(*self.log_ww_over_wc)
-        aw = r1 * np.sqrt(w_warburg / 2.0)
-
-        scale = 10.0 ** rng.uniform(*cfg.log_impedance_scale)
-        return np.array([r0 * scale, q / scale, alpha, r1 * scale, aw * scale])
-
-    def impedance_torch(self, params: Tensor, w: Tensor) -> Tensor:
-        """`R0-(CPE1,R1-W1)`."""
-        import torch  # noqa: PLC0415  (training-only dependency)
-
-        r0 = params[..., 0].unsqueeze(-1)
-        q = params[..., 1].unsqueeze(-1)
-        alpha = params[..., 2].unsqueeze(-1)
-        r1 = params[..., 3].unsqueeze(-1)
-        aw = params[..., 4].unsqueeze(-1)
-
-        y_cpe = q * _j_pow(alpha, w)
-        z_w = aw * torch.complex(torch.ones_like(w), -torch.ones_like(w)) / torch.sqrt(w)
-        branch = r1.to(z_w.dtype) + z_w
-        return r0.to(z_w.dtype) + 1.0 / (y_cpe + 1.0 / branch)
-
-
 class ArcChain(TrainingCircuit):
     """`[L0-]R0` then R/C or R/CPE arcs, optionally with diffusion.
 
@@ -405,7 +335,7 @@ CIRCUITS: dict[str, TrainingCircuit] = {
         ArcChain("two_rq", 2),
         ArcChain("two_rq_l", 2, inductor=True),
         # one arc with diffusion
-        TrainingRandles(),
+        ArcChain("randles", 1, diffusion="W", log_wc_tau1=(-2.0, 2.0)),
         # two arcs with semi-infinite diffusion
         ArcChain("sei_randles", 2, diffusion="W", log_ww_over_wc=(-5.0, -1.0)),
         # same, with finite-space diffusion: an intercalation particle has a

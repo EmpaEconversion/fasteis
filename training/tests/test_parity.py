@@ -110,28 +110,19 @@ def test_residual_loss_is_differentiable(circuit: circuits.TrainingCircuit) -> N
     assert torch.isfinite(params.grad).all()
 
 
-def _trained(name: str) -> tuple[Path, Path]:
-    return (
-        Path("training/checkpoints") / name / "best.pt",
-        Path("src/models") / f"{name}.eisnn",
+def _torch_from_weights(name: str, path: Path):
+    """Rebuild the torch network and its target statistics from an exported file."""
+    from training import model, train
+
+    circuit = circuits.get(name)
+    metadata, tensors = serialize_weights.read(path)
+    config = model.Config(
+        channels=int(metadata["channels"]),
+        blocks=len(metadata["dilations"].split(",")),
+        head_width=tensors["w.head.0.weight"].shape[0],
+        groups=int(metadata["groups"]),
     )
-
-
-@pytest.mark.parametrize("name", list(circuits.CIRCUITS))
-def test_rust_guess_matches_the_torch_network(name: str) -> None:
-    """src/nn.rs reimplements the forward pass, resampling and denormalisation.
-
-    Loads the weights back out of the weights file the crate uses.
-    Compares the whole guess to also catch any drift in the scaling rules.
-    """
-    from training import train
-
-    checkpoint, weights = _trained(name)
-    if not checkpoint.exists() or not weights.exists():
-        pytest.skip(f"{name} has no trained checkpoint and exported weights")
-
-    circuit, net, std, device = train.load_checkpoint(checkpoint)
-    _, tensors = serialize_weights.read(weights)
+    net = model.GuessNet(circuit.n_params, config)
     net.load_state_dict(
         {
             key.removeprefix("w."): torch.tensor(value, dtype=torch.float32)
@@ -139,6 +130,25 @@ def test_rust_guess_matches_the_torch_network(name: str) -> None:
             if key.startswith("w.")
         }
     )
+    net.eval()
+    device = torch.device("cpu")
+    std = train.Standardiser(tensors["target_mean"], tensors["target_std"], device)
+    return circuit, net, std, device
+
+
+@pytest.mark.parametrize("name", list(circuits.CIRCUITS))
+def test_rust_guess_matches_the_torch_network(name: str) -> None:
+    """src/nn.rs reimplements the forward pass, resampling and denormalisation.
+
+    Compares the whole guess to also catch any drift in the scaling rules.
+    """
+    from training import train
+
+    weights = Path("src/models") / f"{name}.eisnn"
+    if not weights.exists():
+        pytest.skip(f"{name} has no exported weights")
+
+    circuit, net, std, device = _torch_from_weights(name, weights)
 
     built = fasteis.Circuit(circuit.circuit_str)
     for spectrum in priors.sample_many(np.random.default_rng(21), circuit, 200):

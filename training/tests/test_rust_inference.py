@@ -78,7 +78,7 @@ def test_topology_matches_regardless_of_labels() -> None:
     f, z = list(spectrum.freqs), list(spectrum.z)
 
     named = fasteis.Circuit("randles").guess(f, z)
-    relabelled = fasteis.Circuit("R7-(CPE2,R9-W4)").guess(f, z)
+    relabelled = fasteis.Circuit("R7-(R9-W4,CPE2)").guess(f, z)
 
     assert relabelled == pytest.approx(named, rel=1e-12)
 
@@ -88,7 +88,7 @@ def test_topology_matches_regardless_of_labels() -> None:
     [
         "R0-C1",  # nothing like it
         "R0-(C1,R1-W1)",  # C where the model wants CPE
-        "R0-(R1-W1,CPE1)",  # same elements, branches swapped
+        "R0-(CPE1,R1-W1)",  # same elements, branches swapped
         "R0-CPE1-R1-W1",  # same elements, no parallel
     ],
 )

@@ -15,14 +15,19 @@ from training import circuits, scales
 RANDLES = circuits.get("randles")
 TAU = 2.0 * np.pi
 
-# spans the range the priors will produce, plus alpha at both ends
+# spans the range the priors will produce, plus alpha at both ends.
 PARAM_CASES = [
-    (10.0, 1e-5, 0.85, 100.0, 50.0),
-    (0.01, 1e-2, 1.0, 0.5, 0.2),
-    (1e4, 1e-9, 0.5, 1e5, 1e4),
-    (1.0, 1.0, 0.999, 1.0, 1.0),
-    (2.5, 3e-4, 0.62, 40.0, 7.5),
+    {"R0.r": 10.0, "CPE1.q": 1e-5, "CPE1.alpha": 0.85, "R1.r": 100.0, "W1.aw": 50.0},
+    {"R0.r": 0.01, "CPE1.q": 1e-2, "CPE1.alpha": 1.0, "R1.r": 0.5, "W1.aw": 0.2},
+    {"R0.r": 1e4, "CPE1.q": 1e-9, "CPE1.alpha": 0.5, "R1.r": 1e5, "W1.aw": 1e4},
+    {"R0.r": 1.0, "CPE1.q": 1.0, "CPE1.alpha": 0.999, "R1.r": 1.0, "W1.aw": 1.0},
+    {"R0.r": 2.5, "CPE1.q": 3e-4, "CPE1.alpha": 0.62, "R1.r": 40.0, "W1.aw": 7.5},
 ]
+
+
+def _values(case: dict[str, float]) -> tuple[float, ...]:
+    """Return a case as a positional vector in `param_names` order."""
+    return tuple(case[name] for name in RANDLES.param_names)
 
 
 def _freqs(n: int = 64, lo: float = -2.0, hi: float = 6.0) -> np.ndarray:
@@ -39,9 +44,10 @@ def test_param_names_match_the_rust_circuit() -> None:
     assert tuple(circuit.param_names()) == RANDLES.param_names
 
 
-@pytest.mark.parametrize("params", PARAM_CASES)
+@pytest.mark.parametrize("case", PARAM_CASES)
 @pytest.mark.parametrize("estimator", sorted(scales.ESTIMATORS))
-def test_normalise_denormalise_round_trip(params: tuple[float, ...], estimator: str) -> None:
+def test_normalise_denormalise_round_trip(case: dict[str, float], estimator: str) -> None:
+    params = _values(case)
     freqs = _freqs()
     w = TAU * freqs
     z = _impedance(params, freqs)
@@ -53,20 +59,21 @@ def test_normalise_denormalise_round_trip(params: tuple[float, ...], estimator: 
     assert recovered[0] == pytest.approx(params, rel=1e-12)
 
 
-@pytest.mark.parametrize("params", PARAM_CASES)
-def test_target_encoding_round_trip(params: tuple[float, ...]) -> None:
-    normalised = RANDLES.to_normalised(np.array([params]), 3.0, 700.0)
+@pytest.mark.parametrize("case", PARAM_CASES)
+def test_target_encoding_round_trip(case: dict[str, float]) -> None:
+    normalised = RANDLES.to_normalised(np.array([_values(case)]), 3.0, 700.0)
     recovered = RANDLES.from_targets(RANDLES.to_targets(normalised))
 
     assert recovered[0] == pytest.approx(normalised[0], rel=1e-12)
 
 
-@pytest.mark.parametrize("params", PARAM_CASES)
+@pytest.mark.parametrize("case", PARAM_CASES)
 @pytest.mark.parametrize("estimator", sorted(scales.ESTIMATORS))
 def test_normalised_params_reproduce_the_normalised_spectrum(
-    params: tuple[float, ...], estimator: str
+    case: dict[str, float], estimator: str
 ) -> None:
     """Main check: the scaled parameters must generate the scaled curve."""
+    params = _values(case)
     freqs = _freqs()
     w = TAU * freqs
     z = _impedance(params, freqs)
@@ -80,12 +87,12 @@ def test_normalised_params_reproduce_the_normalised_spectrum(
     assert z_hat.imag == pytest.approx((z / k).imag, rel=1e-11, abs=1e-13)
 
 
-@pytest.mark.parametrize("params", PARAM_CASES)
+@pytest.mark.parametrize("case", PARAM_CASES)
 def test_scales_from_params_matches_the_cpe_relaxation(
-    params: tuple[float, ...],
+    case: dict[str, float],
 ) -> None:
-    k, w_c = RANDLES.scales_from_params(np.array([params]))
+    k, w_c = RANDLES.scales_from_params(np.array([_values(case)]))
 
-    assert k[0] == pytest.approx(params[3])
-    tau = (params[3] * params[1]) ** (1.0 / params[2])
+    assert k[0] == pytest.approx(case["R1.r"])
+    tau = (case["R1.r"] * case["CPE1.q"]) ** (1.0 / case["CPE1.alpha"])
     assert w_c[0] == pytest.approx(1.0 / tau)
