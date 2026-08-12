@@ -14,12 +14,18 @@ Training needs torch (`uv sync --all-extras`).
 import fasteis
 
 circuit = fasteis.Circuit("randles")
-result = circuit.fit(freqs, z, guess_init=True)
+result = circuit.fit(freqs, z)
 ```
 
-`guess_init=True` looks up a model by the circuit's topology, if there is an
-associated neural network, it can do one inference to guess reasonable intial
-parameters, then normal least-squares fitting goes from there.
+A circuit with no parameter values of its own guesses by default: `fit()` looks
+up a model by the circuit's topology and, if there is an associated neural
+network, does one inference to guess reasonable initial parameters, then normal
+least-squares fitting goes from there.
+
+You can supply initial values using `with_values()` or `with_named_values()` to
+bypass the ML guess. You can also supply `guess_init=True` to always guess, or
+`guess_init=False` to never guess.
+
 `Circuit.guess(freqs, z)` returns the parameter vector alone, in
 `param_names()` order.
 

@@ -1,9 +1,10 @@
 use std::collections::HashMap;
 use std::f64::consts::TAU;
+use std::ffi::CString;
 
 use num_complex::Complex64;
 use numpy::{IntoPyArray, PyArray1};
-use pyo3::exceptions::PyValueError;
+use pyo3::exceptions::{PyUserWarning, PyValueError};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
@@ -38,6 +39,13 @@ fn guess_params(
     Ok(models::apply_permutation(&permutation, &values))
 }
 
+/// Raise a Python `UserWarning`
+fn warn(py: Python<'_>, message: &str) -> PyResult<()> {
+    let text = CString::new(message)
+        .map_err(|_| PyValueError::new_err("warning message contained an interior nul byte"))?;
+    PyErr::warn(py, &py.get_type::<PyUserWarning>(), &text, 1)
+}
+
 /// Below this many frequency points, rayon's ~20 us overhead outweighs
 /// the benefit of parallelizing, so we fall back to a plain sequential map.
 /// Depends on circuit complexity, R breaks even at 12_000, randles at 1_500,
@@ -48,10 +56,22 @@ const PARALLEL_THRESHOLD: usize = 1_000;
 #[derive(Clone)]
 pub struct Circuit {
     pub node: Series,
+    /// Whether user supplied initial values
+    values_supplied: bool,
 }
 
-fn leaf(element: Element) -> Series {
-    vec![Node::Element(element, None)]
+impl Circuit {
+    /// A circuit whose parameter values came from the caller or from a fit.
+    fn valued(node: Series) -> Circuit {
+        Circuit {
+            node,
+            values_supplied: true,
+        }
+    }
+}
+
+fn leaf(element: Element) -> Circuit {
+    Circuit::valued(vec![Node::Element(element, None)])
 }
 
 fn parse_weighting(weight: &str) -> PyResult<Weighting> {
@@ -69,110 +89,83 @@ fn parse_weighting(weight: &str) -> PyResult<Weighting> {
 impl Circuit {
     #[staticmethod]
     fn R(r: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::R { r }),
-        }
+        leaf(Element::R { r })
     }
 
     #[staticmethod]
     fn C(c: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::C { c }),
-        }
+        leaf(Element::C { c })
     }
 
     #[staticmethod]
     fn L(l: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::L { l }),
-        }
+        leaf(Element::L { l })
     }
 
     #[staticmethod]
     fn La(l: f64, alpha: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::La { l, alpha }),
-        }
+        leaf(Element::La { l, alpha })
     }
 
     #[staticmethod]
     fn CPE(q: f64, alpha: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::Cpe { q, alpha }),
-        }
+        leaf(Element::Cpe { q, alpha })
     }
 
     #[staticmethod]
     fn W(aw: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::W { aw }),
-        }
+        leaf(Element::W { aw })
     }
 
     #[staticmethod]
     fn Wo(z0: f64, tau: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::Wo { z0, tau }),
-        }
+        leaf(Element::Wo { z0, tau })
     }
 
     #[staticmethod]
     fn Ws(z0: f64, tau: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::Ws { z0, tau }),
-        }
+        leaf(Element::Ws { z0, tau })
     }
 
     #[staticmethod]
     fn G(rg: f64, tg: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::G { rg, tg }),
-        }
+        leaf(Element::G { rg, tg })
     }
 
     #[staticmethod]
     fn Gs(rg: f64, tg: f64, phi: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::Gs { rg, tg, phi }),
-        }
+        leaf(Element::Gs { rg, tg, phi })
     }
 
     #[staticmethod]
     fn K(r: f64, tau_k: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::K { r, tau_k }),
-        }
+        leaf(Element::K { r, tau_k })
     }
 
     #[staticmethod]
     fn Zarc(r: f64, tau_k: f64, gamma: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::Zarc { r, tau_k, gamma }),
-        }
+        leaf(Element::Zarc { r, tau_k, gamma })
     }
 
     #[staticmethod]
     fn TLMQ(r_ion: f64, qs: f64, gamma: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::Tlmq { r_ion, qs, gamma }),
-        }
+        leaf(Element::Tlmq { r_ion, qs, gamma })
     }
 
     #[staticmethod]
     fn T(a_coeff: f64, b_coeff: f64, a_param: f64, b_param: f64) -> Circuit {
-        Circuit {
-            node: leaf(Element::T {
-                a_coeff,
-                b_coeff,
-                a_param,
-                b_param,
-            }),
-        }
+        leaf(Element::T {
+            a_coeff,
+            b_coeff,
+            a_param,
+            b_param,
+        })
     }
 
     #[staticmethod]
     fn series(elements: Vec<Circuit>) -> Circuit {
         Circuit {
+            values_supplied: elements.iter().all(|c| c.values_supplied),
             node: elements.into_iter().flat_map(|c| c.node).collect(),
         }
     }
@@ -180,6 +173,7 @@ impl Circuit {
     #[staticmethod]
     fn parallel(elements: Vec<Circuit>) -> Circuit {
         Circuit {
+            values_supplied: elements.iter().all(|c| c.values_supplied),
             node: vec![Node::Parallel(
                 elements.into_iter().map(|c| c.node).collect(),
             )],
@@ -198,11 +192,14 @@ impl Circuit {
         let text = models::resolve_alias(s).unwrap_or(s);
         let node = circuit::parse(text)
             .map_err(|e| PyValueError::new_err(circuit::describe_parse_error(text, &e)))?;
-        Ok(Circuit { node })
+        Ok(Circuit {
+            node,
+            values_supplied: false,
+        })
     }
 
     /// Names accepted by the constructor that have trained initial-parameter
-    /// models, and so can be used with `fit(guess_init=True)`.
+    /// models, and so get a guessed starting point from `fit()` by default.
     #[staticmethod]
     fn ml_circuits() -> Vec<&'static str> {
         models::names()
@@ -250,9 +247,9 @@ impl Circuit {
                 values.len()
             )));
         }
-        Ok(Circuit {
-            node: circuit::with_param_values(&self.node, &values),
-        })
+        Ok(Circuit::valued(circuit::with_param_values(
+            &self.node, &values,
+        )))
     }
 
     /// Rebuild this circuit with parameter values looked up by name (see
@@ -281,9 +278,10 @@ impl Circuit {
         }
 
         let positional: Vec<f64> = names.iter().map(|name| values[name]).collect();
-        Ok(Circuit {
-            node: circuit::with_param_values(&self.node, &positional),
-        })
+        Ok(Circuit::valued(circuit::with_param_values(
+            &self.node,
+            &positional,
+        )))
     }
 
     fn impedance<'py>(
@@ -393,8 +391,16 @@ impl Circuit {
             .collect())
     }
 
+    /// Fit this circuit's parameters to a measured spectrum.
+    ///
+    /// `guess_init` unset means start from a machine-learning guess whenever the
+    /// circuit is not explicitly given starting parameters. If no model has been
+    /// trained for the topology it warns and starts from placeholder values.
+    ///
+    /// `True` always guesses, and raises rather than warns when it cannot.
+    /// `False` never guesses.
     #[pyo3(signature = (
-        frequencies, impedances, guess_init=false, weights=None,
+        frequencies, impedances, guess_init=None, weights=None,
         weight="modulus", method="levenberg_marquardt",
         max_iterations=200, ftol=1e-8, xtol=1e-8,
         num_particles=200, generations=1000,
@@ -410,7 +416,7 @@ impl Circuit {
         py: Python<'_>,
         frequencies: Vec<f64>,
         impedances: Vec<Complex64>,
-        guess_init: bool,
+        guess_init: Option<bool>,
         weights: Option<&str>,
         weight: &str,
         method: &str,
@@ -435,11 +441,18 @@ impl Circuit {
             ));
         }
 
-        let node = if guess_init {
+        // unset means guess whenever there is nothing better to start from
+        let wants_guess = guess_init.unwrap_or(!self.values_supplied || weights.is_some());
+        let no_model = weights.is_none() && models::find_for_topology(&self.node).is_none();
+        let node = if !wants_guess {
+            self.node.clone()
+        } else if guess_init.is_none() && no_model {
+            // only an explicit guess_init=True makes an untrained circuit an error
+            warn(py, &models::describe_fallback())?;
+            self.node.clone()
+        } else {
             let values = guess_params(&self.node, &frequencies, &impedances, weights)?;
             circuit::with_param_values(&self.node, &values)
-        } else {
-            self.node.clone()
         };
 
         let outcome = py
@@ -516,7 +529,7 @@ impl Circuit {
             .map(|se| outcome.param_names.iter().cloned().zip(se).collect());
 
         Ok(FitResult {
-            circuit: Circuit { node: outcome.node },
+            circuit: Circuit::valued(outcome.node),
             params,
             stderr,
             success: outcome.success,

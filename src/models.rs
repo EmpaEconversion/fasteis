@@ -293,15 +293,29 @@ pub fn load_external(
 
 /// Message for a circuit that has no trained weights.
 pub fn describe_missing() -> String {
-    let available = names()
+    format!(
+        "No training data on this circuit. \
+         Machine-learning based initial parameters available for {}",
+        quoted_names()
+    )
+}
+
+/// Warning for `fit()` when it would have guessed but has no model to guess with.
+pub fn describe_fallback() -> String {
+    format!(
+        "There is no ML model to guess initial parameters for this circuit. \
+         Supply your own with Circuit.with_named_values({{...}}) or Circuit.with_values([...]), \
+         or pass guess_init=False to silence this. Models available for {}",
+        quoted_names()
+    )
+}
+
+fn quoted_names() -> String {
+    names()
         .iter()
         .map(|n| format!("'{n}'"))
         .collect::<Vec<_>>()
-        .join(", ");
-    format!(
-        "No training data on this circuit. \
-         Machine-learning based initial parameters available for {available}"
-    )
+        .join(", ")
 }
 
 #[cfg(test)]

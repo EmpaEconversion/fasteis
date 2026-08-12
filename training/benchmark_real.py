@@ -69,12 +69,17 @@ def _fit(built: fasteis.Circuit, m: Measured, **kwargs) -> tuple[float, int, flo
 
 def strategies(circuit: circuits.TrainingCircuit, *, with_global: bool) -> dict:
     """Name -> fit keyword arguments."""
+    # the baselines are what you get without a model, so they opt out of the guess
     out = {
-        "library defaults": {},
+        "library defaults": {"guess_init": False},
         "ml guess": {"guess_init": True},
     }
     if with_global:
-        out["differential_evolution"] = {"method": "differential_evolution", "seed": 0}
+        out["differential_evolution"] = {
+            "method": "differential_evolution",
+            "seed": 0,
+            "guess_init": False,
+        }
     return out
 
 

@@ -81,7 +81,7 @@ class Circuit:
         self,
         frequencies: Sequence[float],
         impedances: Sequence[complex],
-        guess_init: bool = False,
+        guess_init: bool | None = None,
         weights: str | None = None,
         weight: Literal["modulus", "unit"] = "modulus",
         method: Literal[
