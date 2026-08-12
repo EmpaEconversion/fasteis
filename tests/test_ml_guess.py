@@ -107,7 +107,7 @@ def test_untrained_circuit_warns() -> None:
     """An untrained circuit warns that it cannot guess, uses default values."""
     circuit = fasteis.Circuit(UNTRAINED)
 
-    with pytest.warns(UserWarning, match="no ML model for this circuit") as record:
+    with pytest.warns(UserWarning, match="no ML model to guess initial parameters") as record:
         result = circuit.fit(FREQS, Z)
 
     assert "guess_init=False" in str(record[0].message)
