@@ -12,6 +12,9 @@ class _ComplexArray(Protocol):
     def __len__(self) -> int: ...
     def __iter__(self) -> Iterator[SupportsComplex | SupportsFloat]: ...
 
+class _DataFrame(Protocol):
+    def __getitem__(self, key: str, /) -> _FloatArray: ...
+
 class FitResult:
     circuit: Circuit
     params: dict[str, float]
@@ -60,35 +63,35 @@ class Circuit:
     def ml_circuits() -> list[str]: ...
     def guess(
         self,
-        frequencies: _FloatArray,
-        impedances: _ComplexArray,
+        frequencies: _FloatArray | _DataFrame,
+        impedances: _ComplexArray | None = None,
         weights: str | None = None,
     ) -> list[float]: ...
     def param_names(self) -> list[str]: ...
     def with_values(self, values: _FloatArray) -> Circuit: ...
     def with_named_values(self, values: dict[str, float]) -> Circuit: ...
-    def impedance(self, frequencies: _FloatArray) -> npt.NDArray[np.complex128]: ...
+    def impedance(self, frequencies: _FloatArray | _DataFrame) -> npt.NDArray[np.complex128]: ...
     def param_values(self) -> list[float]: ...
     def param_bounds(self) -> list[tuple[float, float]]: ...
     def param_units(self) -> list[str]: ...
     def residuals(
         self,
         params: _FloatArray,
-        frequencies: _FloatArray,
-        impedances: _ComplexArray,
+        frequencies: _FloatArray | _DataFrame,
+        impedances: _ComplexArray | None = None,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[float]: ...
     def jacobian(
         self,
         params: _FloatArray,
-        frequencies: _FloatArray,
-        impedances: _ComplexArray,
+        frequencies: _FloatArray | _DataFrame,
+        impedances: _ComplexArray | None = None,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[list[float]]: ...
     def fit(
         self,
-        frequencies: _FloatArray,
-        impedances: _ComplexArray,
+        frequencies: _FloatArray | _DataFrame,
+        impedances: _ComplexArray | None = None,
         guess_init: bool | None = None,
         weights: str | None = None,
         weight: Literal["modulus", "unit"] = "modulus",

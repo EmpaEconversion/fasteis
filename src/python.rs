@@ -52,6 +52,150 @@ fn warn(py: Python<'_>, message: &str) -> PyResult<()> {
 /// more complex would be lower.
 const PARALLEL_THRESHOLD: usize = 1_000;
 
+/// Accepted spellings of each battery data format column
+const FREQUENCY_COLUMNS: [&str; 2] = ["Frequency / Hz", "frequency_hertz"];
+const REAL_COLUMNS: [&str; 2] = ["Real Impedance / ohm", "real_impedance_ohm"];
+const IMAGINARY_COLUMNS: [&str; 2] = ["Imaginary Impedance / ohm", "imaginary_impedance_ohm"];
+const ABSOLUTE_COLUMNS: [&str; 2] = ["Absolute Impedance / ohm", "absolute_impedance_ohm"];
+const PHASE_COLUMNS: [&str; 2] = ["Phase / deg", "phase_degree"];
+
+/// `"a" or "b"`, for listing accepted spellings in an error message.
+fn either_of(names: &[&str; 2]) -> String {
+    format!("{:?} or {:?}", names[0], names[1])
+}
+
+/// Read a column by any of its accepted spellings, `None` if the frame has
+/// neither. Anything without string keys (a list, an array) also yields `None`.
+fn column(frame: &Bound<'_, PyAny>, names: &[&str; 2]) -> PyResult<Option<Vec<f64>>> {
+    for name in names {
+        let Ok(values) = frame.get_item(name) else {
+            continue;
+        };
+        return values
+            .extract::<Vec<f64>>()
+            .map(Some)
+            .map_err(|_| PyValueError::new_err(format!("column {name:?} is not numeric")));
+    }
+    Ok(None)
+}
+
+/// Read f, Z from a battery data format dataframe.
+/// Skip rows were f is not positive.
+fn unpack_frame(frame: &Bound<'_, PyAny>) -> PyResult<(Vec<f64>, Vec<Complex64>)> {
+    let Some(frequencies) = column(frame, &FREQUENCY_COLUMNS)? else {
+        return Err(PyValueError::new_err(format!(
+            "expected a dataframe with a {} column, \
+             or frequencies and impedances as two arguments",
+            either_of(&FREQUENCY_COLUMNS)
+        )));
+    };
+
+    let cartesian = (
+        column(frame, &REAL_COLUMNS)?,
+        column(frame, &IMAGINARY_COLUMNS)?,
+    );
+    let polar = (
+        column(frame, &ABSOLUTE_COLUMNS)?,
+        column(frame, &PHASE_COLUMNS)?,
+    );
+    let (impedances, columns) = match (cartesian, polar) {
+        ((Some(real), Some(imaginary)), _) => {
+            if real.len() != imaginary.len() {
+                return Err(PyValueError::new_err(
+                    "real and imaginary impedance columns must have the same length",
+                ));
+            }
+            let z: Vec<Complex64> = real
+                .iter()
+                .zip(&imaginary)
+                .map(|(re, im)| Complex64::new(*re, *im))
+                .collect();
+            (z, (&REAL_COLUMNS, &IMAGINARY_COLUMNS))
+        }
+        (_, (Some(absolute), Some(phase))) => {
+            if absolute.len() != phase.len() {
+                return Err(PyValueError::new_err(
+                    "absolute impedance and phase columns must have the same length",
+                ));
+            }
+            let z = absolute
+                .iter()
+                .zip(&phase)
+                .map(|(r, deg)| Complex64::from_polar(*r, deg.to_radians()))
+                .collect();
+            (z, (&ABSOLUTE_COLUMNS, &PHASE_COLUMNS))
+        }
+        _ => {
+            return Err(PyValueError::new_err(format!(
+                "no impedance columns: expected {} together with {}, or {} together with {}",
+                either_of(&REAL_COLUMNS),
+                either_of(&IMAGINARY_COLUMNS),
+                either_of(&ABSOLUTE_COLUMNS),
+                either_of(&PHASE_COLUMNS),
+            )));
+        }
+    };
+
+    if frequencies.len() != impedances.len() {
+        return Err(PyValueError::new_err(format!(
+            "frequency column has {} rows but {} and {} have {}",
+            frequencies.len(),
+            either_of(columns.0),
+            either_of(columns.1),
+            impedances.len(),
+        )));
+    }
+
+    // Only keep rows where frequency is positive.
+    let (frequencies, impedances): (Vec<f64>, Vec<Complex64>) = frequencies
+        .into_iter()
+        .zip(impedances)
+        .filter(|(f, _)| *f > 0.0)
+        .unzip();
+    if frequencies.is_empty() {
+        return Err(PyValueError::new_err(format!(
+            "no measured points: every row of the {} column is zero or negative",
+            either_of(&FREQUENCY_COLUMNS)
+        )));
+    }
+    Ok((frequencies, impedances))
+}
+
+/// Resolve a spectrum given either two sequences or a single dataframe.
+/// Dataframes remove non-positive frequencies.
+fn spectrum(
+    frequencies: &Bound<'_, PyAny>,
+    impedances: Option<&Bound<'_, PyAny>>,
+) -> PyResult<(Vec<f64>, Vec<Complex64>)> {
+    let Some(impedances) = impedances else {
+        return unpack_frame(frequencies);
+    };
+    let pair = (
+        frequencies.extract::<Vec<f64>>()?,
+        impedances.extract::<Vec<Complex64>>()?,
+    );
+    if pair.0.len() != pair.1.len() {
+        return Err(PyValueError::new_err(
+            "frequencies and impedances must have the same length",
+        ));
+    }
+    Ok(pair)
+}
+
+/// Resolve frequencies given either a sequence or a dataframe to take the
+/// frequency column from.
+fn frequencies_of(frequencies: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
+    if let Ok(values) = frequencies.extract::<Vec<f64>>() {
+        return Ok(values);
+    }
+    column(frequencies, &FREQUENCY_COLUMNS)?.ok_or_else(|| {
+        PyValueError::new_err(format!(
+            "expected a sequence of frequencies, or a dataframe with a {} column",
+            either_of(&FREQUENCY_COLUMNS)
+        ))
+    })
+}
+
 #[pyclass]
 #[derive(Clone)]
 pub struct Circuit {
@@ -216,18 +360,14 @@ impl Circuit {
     ///
     /// Raises if no model has been trained for this topology, or if `weights`
     /// was trained for a different one.
-    #[pyo3(signature = (frequencies, impedances, weights=None))]
+    #[pyo3(signature = (frequencies, impedances=None, weights=None))]
     fn guess(
         &self,
-        frequencies: Vec<f64>,
-        impedances: Vec<Complex64>,
+        frequencies: &Bound<'_, PyAny>,
+        impedances: Option<&Bound<'_, PyAny>>,
         weights: Option<&str>,
     ) -> PyResult<Vec<f64>> {
-        if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err(
-                "frequencies and impedances must have the same length",
-            ));
-        }
+        let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         guess_params(&self.node, &frequencies, &impedances, weights)
     }
 
@@ -287,8 +427,9 @@ impl Circuit {
     fn impedance<'py>(
         &self,
         py: Python<'py>,
-        frequencies: Vec<f64>,
-    ) -> Bound<'py, PyArray1<Complex64>> {
+        frequencies: &Bound<'_, PyAny>,
+    ) -> PyResult<Bound<'py, PyArray1<Complex64>>> {
+        let frequencies = frequencies_of(frequencies)?;
         let node = &self.node;
         let result: Vec<Complex64> = py.allow_threads(|| {
             if frequencies.len() >= PARALLEL_THRESHOLD {
@@ -303,7 +444,7 @@ impl Circuit {
                     .collect()
             }
         });
-        result.into_pyarray(py)
+        Ok(result.into_pyarray(py))
     }
 
     /// Current parameter values, in `param_names()` order.
@@ -326,19 +467,16 @@ impl Circuit {
     /// arbitrary parameter vector -- the same building block `fit()` uses
     /// internally for Levenberg-Marquardt, exposed so an external optimizer (e.g.
     /// `scipy.optimize.least_squares`) can drive this circuit's math directly.
+    #[pyo3(signature = (params, frequencies, impedances=None, weight="modulus"))]
     fn residuals(
         &self,
         py: Python<'_>,
         params: Vec<f64>,
-        frequencies: Vec<f64>,
-        impedances: Vec<Complex64>,
+        frequencies: &Bound<'_, PyAny>,
+        impedances: Option<&Bound<'_, PyAny>>,
         weight: &str,
     ) -> PyResult<Vec<f64>> {
-        if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err(
-                "frequencies and impedances must have the same length",
-            ));
-        }
+        let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         let weighting = parse_weighting(weight)?;
         let node = &self.node;
         let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
@@ -358,19 +496,16 @@ impl Circuit {
     /// Central-difference Jacobian of `residuals()` at `params`, shape `(2 *
     /// len(frequencies), len(params))` -- rows are residuals, columns are
     /// parameters, matching what `scipy.optimize.least_squares(jac=...)` expects.
+    #[pyo3(signature = (params, frequencies, impedances=None, weight="modulus"))]
     fn jacobian(
         &self,
         py: Python<'_>,
         params: Vec<f64>,
-        frequencies: Vec<f64>,
-        impedances: Vec<Complex64>,
+        frequencies: &Bound<'_, PyAny>,
+        impedances: Option<&Bound<'_, PyAny>>,
         weight: &str,
     ) -> PyResult<Vec<Vec<f64>>> {
-        if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err(
-                "frequencies and impedances must have the same length",
-            ));
-        }
+        let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         let weighting = parse_weighting(weight)?;
         let node = &self.node;
         let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
@@ -393,6 +528,9 @@ impl Circuit {
 
     /// Fit this circuit's parameters to a measured spectrum.
     ///
+    /// Accepts two sequences of frequencies and impedances, or a single battery
+    /// data format dataframe (`impedances` left as None).
+    ///
     /// `guess_init` unset means start from a machine-learning guess whenever the
     /// circuit is not explicitly given starting parameters. If no model has been
     /// trained for the topology it warns and starts from placeholder values.
@@ -400,7 +538,7 @@ impl Circuit {
     /// `True` always guesses, and raises rather than warns when it cannot.
     /// `False` never guesses.
     #[pyo3(signature = (
-        frequencies, impedances, guess_init=None, weights=None,
+        frequencies, impedances=None, guess_init=None, weights=None,
         weight="modulus", method="levenberg_marquardt",
         max_iterations=200, ftol=1e-8, xtol=1e-8,
         num_particles=200, generations=1000,
@@ -414,8 +552,8 @@ impl Circuit {
     fn fit(
         &self,
         py: Python<'_>,
-        frequencies: Vec<f64>,
-        impedances: Vec<Complex64>,
+        frequencies: &Bound<'_, PyAny>,
+        impedances: Option<&Bound<'_, PyAny>>,
         guess_init: Option<bool>,
         weights: Option<&str>,
         weight: &str,
@@ -434,12 +572,8 @@ impl Circuit {
         basin_hopping_temperature: f64,
         seed: Option<u64>,
     ) -> PyResult<FitResult> {
+        let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         let weighting = parse_weighting(weight)?;
-        if frequencies.len() != impedances.len() {
-            return Err(PyValueError::new_err(
-                "frequencies and impedances must have the same length",
-            ));
-        }
 
         // unset means guess whenever there is nothing better to start from
         let wants_guess = guess_init.unwrap_or(!self.values_supplied || weights.is_some());
