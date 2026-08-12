@@ -1,8 +1,16 @@
-from collections.abc import Sequence
-from typing import Literal
+from collections.abc import Iterator, Sequence
+from typing import Literal, Protocol, SupportsComplex, SupportsFloat
 
 import numpy as np
 import numpy.typing as npt
+
+class _FloatArray(Protocol):
+    def __len__(self) -> int: ...
+    def __iter__(self) -> Iterator[SupportsFloat]: ...
+
+class _ComplexArray(Protocol):
+    def __len__(self) -> int: ...
+    def __iter__(self) -> Iterator[SupportsComplex | SupportsFloat]: ...
 
 class FitResult:
     circuit: Circuit
@@ -52,35 +60,35 @@ class Circuit:
     def ml_circuits() -> list[str]: ...
     def guess(
         self,
-        frequencies: Sequence[float],
-        impedances: Sequence[complex],
+        frequencies: _FloatArray,
+        impedances: _ComplexArray,
         weights: str | None = None,
     ) -> list[float]: ...
     def param_names(self) -> list[str]: ...
-    def with_values(self, values: Sequence[float]) -> Circuit: ...
+    def with_values(self, values: _FloatArray) -> Circuit: ...
     def with_named_values(self, values: dict[str, float]) -> Circuit: ...
-    def impedance(self, frequencies: Sequence[float]) -> npt.NDArray[np.complex128]: ...
+    def impedance(self, frequencies: _FloatArray) -> npt.NDArray[np.complex128]: ...
     def param_values(self) -> list[float]: ...
     def param_bounds(self) -> list[tuple[float, float]]: ...
     def param_units(self) -> list[str]: ...
     def residuals(
         self,
-        params: Sequence[float],
-        frequencies: Sequence[float],
-        impedances: Sequence[complex],
+        params: _FloatArray,
+        frequencies: _FloatArray,
+        impedances: _ComplexArray,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[float]: ...
     def jacobian(
         self,
-        params: Sequence[float],
-        frequencies: Sequence[float],
-        impedances: Sequence[complex],
+        params: _FloatArray,
+        frequencies: _FloatArray,
+        impedances: _ComplexArray,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[list[float]]: ...
     def fit(
         self,
-        frequencies: Sequence[float],
-        impedances: Sequence[complex],
+        frequencies: _FloatArray,
+        impedances: _ComplexArray,
         guess_init: bool | None = None,
         weights: str | None = None,
         weight: Literal["modulus", "unit"] = "modulus",
