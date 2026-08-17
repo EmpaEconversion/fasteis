@@ -249,7 +249,7 @@ class FitResult:
     """Whether the optimiser reported convergence."""
     iterations: int
     """Optimiser iterations, counting residual calls only."""
-    impedance_evaluations: int
+    impedance_evals: int
     """Full impedance sweeps spent, including Jacobians and restarts."""
     cost: float
     """Half the sum of squared weighted residuals, the quantity minimised."""
@@ -296,7 +296,10 @@ class Circuit:
         """Machine-learning guess of starting parameters for this topology.
 
         Series and parallel elements may be written in any order and with any
-        labels: `(R1,C2)-R3` uses the same model as `R0-(R1,C1)`.
+        labels: `(R1,C2)-R3` uses the same model as `R0-(R1,C1)`. `K` and `Zarc`
+        reach the models trained on the pairs they abbreviate, so `R0-Zarc1`
+        uses the `R0-(R1,CPE1)` model and gets its guess back as `r`, `tau_k`
+        and `gamma`.
 
         Args:
             frequencies: Frequencies in Hz, or a battery data format dataframe

@@ -147,7 +147,7 @@ def fit_library(
 
     return Outcome(
         success=result.success,
-        evaluations=int(result.impedance_evaluations),
+        evaluations=int(result.impedance_evals),
         cost=result.cost,
         params=np.array([result.params[n] for n in circuit.param_names]),
         seconds=elapsed,

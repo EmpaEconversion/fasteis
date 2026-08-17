@@ -28,7 +28,7 @@ def _fit_all(built: fasteis.Circuit, spectra, weights: str | None) -> tuple[np.n
         try:
             r = built.fit(freqs, z, guess_init=True, weights=weights, **evaluate.LIBRARY_FIT_KWARGS)
             chi.append(r.chi_square if np.isfinite(r.chi_square) else np.inf)
-            sweeps.append(r.impedance_evaluations)
+            sweeps.append(r.impedance_evals)
         except ValueError:
             chi.append(np.inf)
             sweeps.append(0)

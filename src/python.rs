@@ -626,7 +626,7 @@ impl Circuit {
             stderr,
             success: outcome.success,
             iterations: outcome.iterations,
-            impedance_evaluations: outcome.impedance_evaluations,
+            impedance_evals: outcome.impedance_evals,
             cost: outcome.cost,
             chi_square: outcome.chi_square,
         })
@@ -662,7 +662,7 @@ pub struct FitResult {
     /// Full impedance sweeps spent, including Jacobians and restarts. A better
     /// cost measure than `iterations`, which counts residual calls only.
     #[pyo3(get)]
-    pub impedance_evaluations: u64,
+    pub impedance_evals: u64,
     #[pyo3(get)]
     pub cost: f64,
     #[pyo3(get)]
@@ -673,8 +673,8 @@ pub struct FitResult {
 impl FitResult {
     fn __repr__(&self) -> String {
         format!(
-            "FitResult(success={}, iterations={}, impedance_evaluations={}, chi_square={:.6e}, params={:?})",
-            self.success, self.iterations, self.impedance_evaluations, self.chi_square, self.params
+            "FitResult(success={}, iterations={}, impedance_evals={}, chi_square={:.6e}, params={:?})",
+            self.success, self.iterations, self.impedance_evals, self.chi_square, self.params
         )
     }
 }

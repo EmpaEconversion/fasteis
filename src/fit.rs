@@ -71,7 +71,7 @@ pub struct FitOutcome {
     pub success: bool,
     pub iterations: u64,
     /// Full impedance sweeps spent, including Jacobians and restarts.
-    pub impedance_evaluations: u64,
+    pub impedance_evals: u64,
     pub cost: f64,
     pub chi_square: f64,
     pub stderr: Option<Vec<f64>>,
@@ -589,7 +589,7 @@ fn build_outcome(
         params,
         success,
         iterations,
-        impedance_evaluations: evals.get(),
+        impedance_evals: evals.get(),
         cost,
         chi_square,
         stderr,
@@ -777,14 +777,14 @@ fn polish_or_fallback(
         &FitOptions::default(),
     )?;
     // the polish counts separately, so fold its sweeps into the search's total
-    evals.add(polished.impedance_evaluations);
+    evals.add(polished.impedance_evals);
 
     let mut chosen = if polished.cost.is_finite() && polished.cost <= candidate_outcome.cost {
         polished
     } else {
         candidate_outcome
     };
-    chosen.impedance_evaluations = evals.get();
+    chosen.impedance_evals = evals.get();
     Ok(chosen)
 }
 
@@ -1265,7 +1265,7 @@ mod tests {
     }
 
     #[test]
-    fn impedance_evaluations_counts_jacobian_sweeps_not_just_residual_calls() {
+    fn impedance_evals_counts_jacobian_sweeps_not_just_residual_calls() {
         // A Jacobian is 2 sweeps per parameter, so the count must exceed `iterations`
         // (residual calls) by roughly that factor. Reporting only `iterations` would
         // understate the work by about 10x on a 5-parameter circuit.
@@ -1295,13 +1295,13 @@ mod tests {
         )
         .expect("fit should succeed");
 
-        assert!(outcome.impedance_evaluations > outcome.iterations);
+        assert!(outcome.impedance_evals > outcome.iterations);
         // one sweep per residual call, plus 2*n_params per Jacobian
         let per_jacobian = 2 * n_params as u64;
         assert!(
-            outcome.impedance_evaluations >= outcome.iterations * per_jacobian / 2,
+            outcome.impedance_evals >= outcome.iterations * per_jacobian / 2,
             "evaluations={} iterations={}",
-            outcome.impedance_evaluations,
+            outcome.impedance_evals,
             outcome.iterations
         );
     }
