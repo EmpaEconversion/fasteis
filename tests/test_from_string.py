@@ -87,10 +87,10 @@ def test_with_values_sets_params_positionally() -> None:
     assert circuit.param_names() == ["R0.r", "R1.r", "Cpe1.q", "Cpe1.alpha"]
 
     z = np.asarray(circuit.impedance(FREQS), dtype=np.complex128)
-    expected = fasteis.Circuit.series(
+    expected = fasteis.Series(
         [
-            fasteis.Circuit.R(100.0),
-            fasteis.Circuit.parallel([fasteis.Circuit.R(200.0), fasteis.Circuit.CPE(3e-4, 0.8)]),
+            fasteis.R(100.0),
+            fasteis.Parallel([fasteis.R(200.0), fasteis.Cpe(3e-4, 0.8)]),
         ]
     )
     np.testing.assert_allclose(z, np.asarray(expected.impedance(FREQS), dtype=np.complex128))
@@ -107,10 +107,10 @@ def test_with_named_values_sets_params_by_label() -> None:
         {"R0.r": 100.0, "R1.r": 200.0, "Cpe1.q": 3e-4, "Cpe1.alpha": 0.8}
     )
     z = np.asarray(circuit.impedance(FREQS), dtype=np.complex128)
-    expected = fasteis.Circuit.series(
+    expected = fasteis.Series(
         [
-            fasteis.Circuit.R(100.0),
-            fasteis.Circuit.parallel([fasteis.Circuit.R(200.0), fasteis.Circuit.CPE(3e-4, 0.8)]),
+            fasteis.R(100.0),
+            fasteis.Parallel([fasteis.R(200.0), fasteis.Cpe(3e-4, 0.8)]),
         ]
     )
     np.testing.assert_allclose(z, np.asarray(expected.impedance(FREQS), dtype=np.complex128))
@@ -157,11 +157,11 @@ def test_repr_lists_every_param_name_value_unit_and_bound() -> None:
 
 
 def test_from_string_circuit_can_be_fit() -> None:
-    truth = fasteis.Circuit.series(
+    truth = fasteis.Series(
         [
-            fasteis.Circuit.R(20.0),
-            fasteis.Circuit.parallel([fasteis.Circuit.R(200.0), fasteis.Circuit.W(50.0)]),
-            fasteis.Circuit.C(1e-5),
+            fasteis.R(20.0),
+            fasteis.Parallel([fasteis.R(200.0), fasteis.W(50.0)]),
+            fasteis.C(1e-5),
         ]
     )
     z = np.asarray(truth.impedance(FREQS), dtype=np.complex128)

@@ -1,5 +1,11 @@
 use num_complex::Complex64;
+use pyo3::prelude::*;
 
+/// A single circuit element.
+///
+/// These are Python subclasses taking its fields as arguments.
+/// They are combined with `Series()` and `Parallel()`.
+#[pyclass(module = "fasteis")]
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Element {
     R {
@@ -480,6 +486,19 @@ impl Element {
             _ => return None,
         };
         Some(element)
+    }
+}
+
+#[pymethods]
+impl Element {
+    fn __repr__(&self) -> String {
+        let args: Vec<String> = self
+            .param_names()
+            .iter()
+            .zip(self.values())
+            .map(|(name, value)| format!("{name}={value:?}"))
+            .collect();
+        format!("Element.{}({})", self.type_tag(), args.join(", "))
     }
 }
 

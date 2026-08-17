@@ -196,7 +196,7 @@ fn frequencies_of(frequencies: &Bound<'_, PyAny>) -> PyResult<Vec<f64>> {
     })
 }
 
-#[pyclass]
+#[pyclass(module = "fasteis")]
 #[derive(Clone)]
 pub struct Circuit {
     pub node: Series,
@@ -214,10 +214,6 @@ impl Circuit {
     }
 }
 
-fn leaf(element: Element) -> Circuit {
-    Circuit::valued(vec![Node::Element(element, None)])
-}
-
 fn parse_weighting(weight: &str) -> PyResult<Weighting> {
     match weight {
         "modulus" => Ok(Weighting::Modulus),
@@ -228,102 +224,54 @@ fn parse_weighting(weight: &str) -> PyResult<Weighting> {
     }
 }
 
-#[allow(non_snake_case)] // element codes intentionally mirror impedance.py's naming (R, C, CPE, ...)
+/// A child accepted by `Series()` and `Parallel()`: either a single element,
+/// or nested circuit.
+#[derive(FromPyObject)]
+enum Part {
+    Element(Element),
+    Circuit(Circuit),
+}
+
+impl Part {
+    fn values_supplied(&self) -> bool {
+        match self {
+            Part::Element(_) => true,
+            Part::Circuit(circuit) => circuit.values_supplied,
+        }
+    }
+
+    fn into_series(self) -> Series {
+        match self {
+            Part::Element(element) => vec![Node::Element(element, None)],
+            Part::Circuit(circuit) => circuit.node,
+        }
+    }
+}
+
+/// Connect elements and circuits end to end.
+#[pyfunction]
+#[pyo3(name = "Series")]
+pub fn series(parts: Vec<Part>) -> Circuit {
+    Circuit {
+        values_supplied: parts.iter().all(Part::values_supplied),
+        node: parts.into_iter().flat_map(Part::into_series).collect(),
+    }
+}
+
+/// Connect elements and circuits as parallel branches.
+#[pyfunction]
+#[pyo3(name = "Parallel")]
+pub fn parallel(parts: Vec<Part>) -> Circuit {
+    Circuit {
+        values_supplied: parts.iter().all(Part::values_supplied),
+        node: vec![Node::Parallel(
+            parts.into_iter().map(Part::into_series).collect(),
+        )],
+    }
+}
+
 #[pymethods]
 impl Circuit {
-    #[staticmethod]
-    fn R(r: f64) -> Circuit {
-        leaf(Element::R { r })
-    }
-
-    #[staticmethod]
-    fn C(c: f64) -> Circuit {
-        leaf(Element::C { c })
-    }
-
-    #[staticmethod]
-    fn L(l: f64) -> Circuit {
-        leaf(Element::L { l })
-    }
-
-    #[staticmethod]
-    fn La(l: f64, alpha: f64) -> Circuit {
-        leaf(Element::La { l, alpha })
-    }
-
-    #[staticmethod]
-    fn CPE(q: f64, alpha: f64) -> Circuit {
-        leaf(Element::Cpe { q, alpha })
-    }
-
-    #[staticmethod]
-    fn W(aw: f64) -> Circuit {
-        leaf(Element::W { aw })
-    }
-
-    #[staticmethod]
-    fn Wo(z0: f64, tau: f64) -> Circuit {
-        leaf(Element::Wo { z0, tau })
-    }
-
-    #[staticmethod]
-    fn Ws(z0: f64, tau: f64) -> Circuit {
-        leaf(Element::Ws { z0, tau })
-    }
-
-    #[staticmethod]
-    fn G(rg: f64, tg: f64) -> Circuit {
-        leaf(Element::G { rg, tg })
-    }
-
-    #[staticmethod]
-    fn Gs(rg: f64, tg: f64, phi: f64) -> Circuit {
-        leaf(Element::Gs { rg, tg, phi })
-    }
-
-    #[staticmethod]
-    fn K(r: f64, tau_k: f64) -> Circuit {
-        leaf(Element::K { r, tau_k })
-    }
-
-    #[staticmethod]
-    fn Zarc(r: f64, tau_k: f64, gamma: f64) -> Circuit {
-        leaf(Element::Zarc { r, tau_k, gamma })
-    }
-
-    #[staticmethod]
-    fn TLMQ(r_ion: f64, qs: f64, gamma: f64) -> Circuit {
-        leaf(Element::Tlmq { r_ion, qs, gamma })
-    }
-
-    #[staticmethod]
-    fn T(a_coeff: f64, b_coeff: f64, a_param: f64, b_param: f64) -> Circuit {
-        leaf(Element::T {
-            a_coeff,
-            b_coeff,
-            a_param,
-            b_param,
-        })
-    }
-
-    #[staticmethod]
-    fn series(elements: Vec<Circuit>) -> Circuit {
-        Circuit {
-            values_supplied: elements.iter().all(|c| c.values_supplied),
-            node: elements.into_iter().flat_map(|c| c.node).collect(),
-        }
-    }
-
-    #[staticmethod]
-    fn parallel(elements: Vec<Circuit>) -> Circuit {
-        Circuit {
-            values_supplied: elements.iter().all(|c| c.values_supplied),
-            node: vec![Node::Parallel(
-                elements.into_iter().map(|c| c.node).collect(),
-            )],
-        }
-    }
-
     /// Parse a circuit topology string, e.g. `"R0-p(R1,Cpe1)"` or
     /// `"R0-p(R1-C1,R2-Cpe2)"`. The string carries no parameter values --
     /// every element gets a placeholder default; set real values afterward
@@ -688,7 +636,7 @@ impl Circuit {
     }
 }
 
-#[pyclass]
+#[pyclass(module = "fasteis")]
 #[derive(Clone)]
 pub struct FitResult {
     #[pyo3(get)]

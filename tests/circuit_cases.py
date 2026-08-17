@@ -17,13 +17,22 @@ IpyResultFn = Callable[[list[float]], NDArray[np.complex128]]
 
 FREQS: FreqArray = np.logspace(-2, 6, 50)
 
+# impedance.py spells these two differently from our Element variants
+ELEMENT_ALIASES = {"CPE": "Cpe", "TLMQ": "Tlmq"}
+
+
+def element(name: str, params: ElementParams) -> fasteis.Element:
+    """Build an element from its impedance.py name."""
+    return getattr(fasteis, ELEMENT_ALIASES.get(name, name))(*params)
+
+
 # numpys tanh/sinh/cosh overflows with large numbers, and result becomes NaN
 # the rust implementation is stable
 # NARROW frequency is used wherever a full 1e-2..1e6 Hz sweep would not be safe
 NARROW: FreqArray = np.logspace(-2, 3, 50)
 
 # name -> list of (params, freqs) variations to check. `params` is the one
-# eis.Circuit.<name>(*params) unpacks it positionally
+# element(name, params) unpacks it positionally
 # impedance.py's functions take the same values as a list
 ELEMENT_CASES: dict[str, list[ElementCase]] = {
     "R": [
@@ -123,10 +132,10 @@ class CompositionCase:
 
 def _make_series_r_parallel_r_cpe() -> CompositionCase:
     r0, r1, q, alpha = 50.0, 200.0, 1e-5, 0.85
-    circuit = fasteis.Circuit.series(
+    circuit = fasteis.Series(
         [
-            fasteis.Circuit.R(r0),
-            fasteis.Circuit.parallel([fasteis.Circuit.R(r1), fasteis.Circuit.CPE(q, alpha)]),
+            fasteis.R(r0),
+            fasteis.Parallel([fasteis.R(r1), fasteis.Cpe(q, alpha)]),
         ]
     )
 
@@ -146,9 +155,9 @@ def _make_series_r_parallel_r_cpe() -> CompositionCase:
 
 def _make_nested_parallel_of_series() -> CompositionCase:
     ra, ca, rb, aw = 10.0, 1e-5, 20.0, 30.0
-    branch_a = fasteis.Circuit.series([fasteis.Circuit.R(ra), fasteis.Circuit.C(ca)])
-    branch_b = fasteis.Circuit.series([fasteis.Circuit.R(rb), fasteis.Circuit.W(aw)])
-    circuit = fasteis.Circuit.parallel([branch_a, branch_b])
+    branch_a = fasteis.Series([fasteis.R(ra), fasteis.C(ca)])
+    branch_b = fasteis.Series([fasteis.R(rb), fasteis.W(aw)])
+    circuit = fasteis.Parallel([branch_a, branch_b])
 
     def ipy_result(freqs_list: list[float]) -> NDArray[np.complex128]:
         return np.asarray(
@@ -167,11 +176,11 @@ def _make_nested_parallel_of_series() -> CompositionCase:
 def _make_three_branch_parallel() -> CompositionCase:
     """Resistors and capacitor in parallel."""
     r0, r1, c = 10.0, 20.0, 1e-6
-    circuit = fasteis.Circuit.parallel(
+    circuit = fasteis.Parallel(
         [
-            fasteis.Circuit.R(r0),
-            fasteis.Circuit.R(r1),
-            fasteis.Circuit.C(c),
+            fasteis.R(r0),
+            fasteis.R(r1),
+            fasteis.C(c),
         ]
     )
 
@@ -193,13 +202,13 @@ def _make_three_branch_parallel() -> CompositionCase:
 def _make_randles() -> CompositionCase:
     """Define a randles circuit."""
     rs, rct, cdl_val, aw = 20.0, 150.0, 20e-6, 60.0
-    circuit = fasteis.Circuit.series(
+    circuit = fasteis.Series(
         [
-            fasteis.Circuit.R(rs),
-            fasteis.Circuit.parallel(
+            fasteis.R(rs),
+            fasteis.Parallel(
                 [
-                    fasteis.Circuit.series([fasteis.Circuit.R(rct), fasteis.Circuit.W(aw)]),
-                    fasteis.Circuit.C(cdl_val),
+                    fasteis.Series([fasteis.R(rct), fasteis.W(aw)]),
+                    fasteis.C(cdl_val),
                 ]
             ),
         ]
@@ -227,13 +236,13 @@ def _make_randles() -> CompositionCase:
 def _make_randles_cpe() -> CompositionCase:
     """Randles circuit with CPE instead of double layer capacitor."""
     rs, rct, q, alpha, aw = 15.0, 300.0, 5e-5, 0.9, 45.0
-    circuit = fasteis.Circuit.series(
+    circuit = fasteis.Series(
         [
-            fasteis.Circuit.R(rs),
-            fasteis.Circuit.parallel(
+            fasteis.R(rs),
+            fasteis.Parallel(
                 [
-                    fasteis.Circuit.series([fasteis.Circuit.R(rct), fasteis.Circuit.W(aw)]),
-                    fasteis.Circuit.CPE(q, alpha),
+                    fasteis.Series([fasteis.R(rct), fasteis.W(aw)]),
+                    fasteis.Cpe(q, alpha),
                 ]
             ),
         ]
