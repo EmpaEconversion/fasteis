@@ -60,10 +60,10 @@ pub enum Element {
         gamma: f64,
     },
     T {
-        a_coeff: f64,
-        b_coeff: f64,
-        a_param: f64,
-        b_param: f64,
+        a: f64,
+        b: f64,
+        k_tau: f64,
+        tau: f64,
     },
 }
 
@@ -149,14 +149,9 @@ impl Element {
                 let y = (r_ion / zs).sqrt();
                 (r_ion * zs).sqrt() / stable_tanh(y)
             }
-            Element::T {
-                a_coeff,
-                b_coeff,
-                a_param,
-                b_param,
-            } => {
-                let beta = (Complex64::new(a_param, 0.0) + jw * b_param).sqrt();
-                a_coeff * stable_coth(beta) / beta + b_coeff * stable_cosech(beta) / beta
+            Element::T { a, b, k_tau, tau } => {
+                let beta = (Complex64::new(k_tau, 0.0) + jw * tau).sqrt();
+                a * stable_coth(beta) / beta + b * stable_cosech(beta) / beta
             }
         }
     }
@@ -238,12 +233,12 @@ impl Element {
                 (r_ion * zs).sqrt() / stable_tanh(y)
             }
             Element::T { .. } => {
-                let a_coeff = next();
-                let b_coeff = next();
-                let a_param = next();
-                let b_param = next();
-                let beta = (Complex64::new(a_param, 0.0) + jw * b_param).sqrt();
-                a_coeff * stable_coth(beta) / beta + b_coeff * stable_cosech(beta) / beta
+                let a = next();
+                let b = next();
+                let k_tau = next();
+                let tau = next();
+                let beta = (Complex64::new(k_tau, 0.0) + jw * tau).sqrt();
+                a * stable_coth(beta) / beta + b * stable_cosech(beta) / beta
             }
         }
     }
@@ -288,7 +283,7 @@ impl Element {
             Element::K { .. } => &["r", "tau_k"],
             Element::Zarc { .. } => &["r", "tau_k", "gamma"],
             Element::Tlmq { .. } => &["r_ion", "qs", "gamma"],
-            Element::T { .. } => &["a_coeff", "b_coeff", "a_param", "b_param"],
+            Element::T { .. } => &["a", "b", "k_tau", "tau"],
         }
     }
 
@@ -308,12 +303,7 @@ impl Element {
             Element::K { r, tau_k } => vec![r, tau_k],
             Element::Zarc { r, tau_k, gamma } => vec![r, tau_k, gamma],
             Element::Tlmq { r_ion, qs, gamma } => vec![r_ion, qs, gamma],
-            Element::T {
-                a_coeff,
-                b_coeff,
-                a_param,
-                b_param,
-            } => vec![a_coeff, b_coeff, a_param, b_param],
+            Element::T { a, b, k_tau, tau } => vec![a, b, k_tau, tau],
         }
     }
 
@@ -364,10 +354,10 @@ impl Element {
                 gamma: values[2],
             },
             Element::T { .. } => Element::T {
-                a_coeff: values[0],
-                b_coeff: values[1],
-                a_param: values[2],
-                b_param: values[3],
+                a: values[0],
+                b: values[1],
+                k_tau: values[2],
+                tau: values[3],
             },
         }
     }
@@ -478,10 +468,10 @@ impl Element {
                 gamma: 0.8,
             },
             "T" => Element::T {
-                a_coeff: 1.0,
-                b_coeff: 1.0,
-                a_param: 1.0,
-                b_param: 1.0,
+                a: 1.0,
+                b: 1.0,
+                k_tau: 1.0,
+                tau: 1.0,
             },
             _ => return None,
         };
@@ -617,10 +607,10 @@ mod tests {
     #[test]
     fn t_and_tlmq_are_finite() {
         let t = Element::T {
-            a_coeff: 1.0,
-            b_coeff: 2.0,
-            a_param: 0.5,
-            b_param: 0.1,
+            a: 1.0,
+            b: 2.0,
+            k_tau: 0.5,
+            tau: 0.1,
         };
         let z = t.impedance(10.0);
         assert!(z.re.is_finite() && z.im.is_finite());
@@ -669,10 +659,10 @@ mod tests {
                 gamma: 0.8,
             },
             Element::T {
-                a_coeff: 1.0,
-                b_coeff: 2.0,
-                a_param: 0.5,
-                b_param: 0.1,
+                a: 1.0,
+                b: 2.0,
+                k_tau: 0.5,
+                tau: 0.1,
             },
         ];
         for e in samples {
@@ -716,10 +706,10 @@ mod tests {
                 gamma: 0.8,
             },
             Element::T {
-                a_coeff: 1.0,
-                b_coeff: 2.0,
-                a_param: 0.5,
-                b_param: 0.1,
+                a: 1.0,
+                b: 2.0,
+                k_tau: 0.5,
+                tau: 0.1,
             },
         ];
         for e in samples {
@@ -778,10 +768,10 @@ mod tests {
                 gamma: 0.8,
             },
             Element::T {
-                a_coeff: 1.0,
-                b_coeff: 1.0,
-                a_param: 1.0,
-                b_param: 10.0,
+                a: 1.0,
+                b: 1.0,
+                k_tau: 1.0,
+                tau: 10.0,
             },
         ];
         for element in elements {

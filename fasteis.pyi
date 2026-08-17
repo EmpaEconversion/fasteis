@@ -212,24 +212,24 @@ class Element:
     class T(Element):
         """General transmission line.
 
-        `Z = a_coeff*coth(beta)/beta + b_coeff*cosech(beta)/beta`, where
-        `beta = sqrt(a_param + jw*b_param)`.
+        `Z = a*coth(beta)/beta + b*cosech(beta)/beta`, where
+        `beta = sqrt(k_tau + jw*tau)`.
+
+        From Electrochimica Acta 38, 2653 (1993), DOI: 10.1016/0013-4686(93)85083-B
 
         Args:
-            a_coeff: Coefficient of the coth term, in `ohm*m^2`.
-            b_coeff: Coefficient of the cosech term, in `ohm*m^2`.
-            a_param: Dimensionless offset inside the square root.
-            b_param: Time constant inside the square root, in s.
+            a: Coefficient of the coth term, in `ohm*m^2`.
+            b: Coefficient of the cosech term, in `ohm*m^2`.
+            k_tau: Charge-transfer rate constant times `tau`, dimensionless.
+            tau: Transport time constant in s.
         """
 
-        a_coeff: float
-        b_coeff: float
-        a_param: float
-        b_param: float
+        a: float
+        b: float
+        k_tau: float
+        tau: float
 
-        def __init__(
-            self, a_coeff: float, b_coeff: float, a_param: float, b_param: float
-        ) -> None: ...
+        def __init__(self, a: float, b: float, k_tau: float, tau: float) -> None: ...
 
 class FitResult:
     """Outcome of `Circuit.fit()`."""
