@@ -134,6 +134,60 @@ pub fn param_values(series: &[Node]) -> Vec<f64> {
         .collect()
 }
 
+/// Circuit with `K` and `Zarc` expanded to (R,C) and (R,Cpe), so they can still
+/// be used with ML guesses. `None` when there is nothing to rewrite. Labels
+/// dropped since the matching ignores them.
+pub fn expand_arcs(series: &[Node]) -> Option<Series> {
+    let mut rewrote = false;
+    let expanded = expand_series(series, &mut rewrote);
+    rewrote.then_some(expanded)
+}
+
+fn expand_series(series: &[Node], rewrote: &mut bool) -> Series {
+    series
+        .iter()
+        .map(|node| match node {
+            Node::Element(e, _) => match e.as_parallel_pair() {
+                Some((r, shunt)) => {
+                    *rewrote = true;
+                    Node::Parallel(vec![
+                        vec![Node::Element(r, None)],
+                        vec![Node::Element(shunt, None)],
+                    ])
+                }
+                None => node.clone(),
+            },
+            Node::Parallel(branches) => {
+                Node::Parallel(branches.iter().map(|b| expand_series(b, rewrote)).collect())
+            }
+        })
+        .collect()
+}
+
+/// Map guessed parameter values back to `K` or `Zarc`.
+pub fn contract_arc_values(series: &[Node], expanded: &[f64]) -> Vec<f64> {
+    let mut out = Vec::with_capacity(param_count(series));
+    let mut cursor = 0;
+    for (element, _) in leaves(series) {
+        match element.as_parallel_pair() {
+            Some((r, shunt)) => {
+                let width = r.param_names().len() + shunt.param_names().len();
+                let rebuilt = element
+                    .with_parallel_pair_values(&expanded[cursor..cursor + width])
+                    .expect("both pair methods cover the same variants");
+                out.extend(rebuilt.values());
+                cursor += width;
+            }
+            None => {
+                let width = element.param_names().len();
+                out.extend_from_slice(&expanded[cursor..cursor + width]);
+                cursor += width;
+            }
+        }
+    }
+    out
+}
+
 /// Default physical-validity bounds, in the same order as `param_names()`.
 pub fn param_bounds(series: &[Node]) -> Vec<(f64, f64)> {
     leaves(series)
@@ -472,6 +526,62 @@ mod tests {
 
     fn assert_close(a: Complex64, b: Complex64, tol: f64) {
         assert!((a - b).norm() < tol, "{:?} != {:?}", a, b);
+    }
+
+    #[test]
+    fn expanding_arcs_leaves_impedance_unchanged() {
+        let arcs = [
+            Element::K {
+                r: 25.0,
+                tau_k: 1e-3,
+            },
+            Element::Zarc {
+                r: 40.0,
+                tau_k: 2e-4,
+                gamma: 0.82,
+            },
+            // gamma = 1 is where Zarc and K coincide
+            Element::Zarc {
+                r: 5.0,
+                tau_k: 1.0,
+                gamma: 1.0,
+            },
+        ];
+        for arc in arcs {
+            let written = vec![Node::Element(arc, None)];
+            let expanded = expand_arcs(&written).expect("K and Zarc both expand");
+            for decade in -4..8 {
+                let omega = 10f64.powi(decade);
+                let want = impedance(&written, omega);
+                let got = impedance(&expanded, omega);
+                assert!(
+                    (want - got).norm() < 1e-9 * want.norm(),
+                    "{arc:?} at omega={omega}: {want:?} != {got:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn contract_arc_values_inverts_the_expansion() {
+        let written = with_param_values(
+            &parse("R0-Zarc1-K2-Cpe3").unwrap(),
+            &[3.0, 40.0, 2e-4, 0.82, 25.0, 1e-3, 5e-5, 0.9],
+        );
+        let expanded = expand_arcs(&written).expect("circuit contains K and Zarc");
+        let round_tripped = contract_arc_values(&written, &param_values(&expanded));
+        for (got, want) in round_tripped.iter().zip(param_values(&written)) {
+            assert!(
+                (got - want).abs() < 1e-9 * want.abs(),
+                "{round_tripped:?} != {:?}",
+                param_values(&written)
+            );
+        }
+    }
+
+    #[test]
+    fn expand_arcs_is_none_when_there_is_nothing_to_rewrite() {
+        assert!(expand_arcs(&parse("R0-(R1,Cpe1)").unwrap()).is_none());
     }
 
     fn r(value: f64) -> Node {

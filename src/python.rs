@@ -20,23 +20,31 @@ fn guess_params(
     impedances: &[Complex64],
     weights: Option<&str>,
 ) -> PyResult<Vec<f64>> {
-    let (guesser, permutation) = match weights {
+    let (guesser, permutation, expanded) = match weights {
         Some(path) => {
-            models::load_external(path, node).map_err(|e| PyValueError::new_err(e.to_string()))?
+            let found = models::load_external(path, node)
+                .map_err(|e| PyValueError::new_err(e.to_string()))?;
+            (found.model, found.permutation, found.expanded)
         }
         None => {
-            let (model, permutation) = models::find_for_topology(node)
+            let found = models::find_for_topology(node)
                 .ok_or_else(|| PyValueError::new_err(models::describe_missing()))?;
-            let guesser = model
+            let guesser = found
+                .model
                 .guesser()
                 .map_err(|e| PyValueError::new_err(e.to_string()))?;
-            (guesser, permutation)
+            (guesser, found.permutation, found.expanded)
         }
     };
     let values = guesser
         .guess(frequencies, impedances)
         .map_err(|e| PyValueError::new_err(e.to_string()))?;
-    Ok(models::apply_permutation(&permutation, &values))
+    let values = models::apply_permutation(&permutation, &values);
+    Ok(if expanded {
+        circuit::contract_arc_values(node, &values)
+    } else {
+        values
+    })
 }
 
 /// Raise a Python `UserWarning`
@@ -301,7 +309,9 @@ impl Circuit {
     /// topology, in `param_names()` order.
     ///
     /// Series and parallel elements may be written with any order and labels:
-    /// `(R1,C2)-R3` uses the same model as `R0-(R1,C1)`.
+    /// `(R1,C2)-R3` uses the same model as `R0-(R1,C1)`. `K` and `Zarc` reach
+    /// the models trained on the pairs they abbreviate, so `R0-Zarc1` uses the
+    /// `R0-(R1,CPE1)` model and gets its guess back as `r`, `tau_k`, `gamma`.
     ///
     /// `weights` loads a `.eisnn` file from disk instead of looking for a
     /// bundled model.

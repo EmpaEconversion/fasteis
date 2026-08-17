@@ -382,6 +382,36 @@ impl Element {
         }
     }
 
+    /// Map `K` / `Zarc` to parallel pairs `(R, C)` / `(R, Cpe)`.
+    /// `None` for every other element.
+    pub fn as_parallel_pair(&self) -> Option<(Element, Element)> {
+        match *self {
+            Element::K { r, tau_k } => Some((Element::R { r }, Element::C { c: tau_k / r })),
+            Element::Zarc { r, tau_k, gamma } => Some((
+                Element::R { r },
+                Element::Cpe {
+                    q: tau_k.powf(gamma) / r,
+                    alpha: gamma,
+                },
+            )),
+            _ => None,
+        }
+    }
+
+    /// Inverse of `as_parallel_pair()`, maps parallel pairs `(R, C)` / `(R, Cpe)`
+    /// to `K` / `Zarc`.
+    pub fn with_parallel_pair_values(&self, values: &[f64]) -> Option<Element> {
+        match (self, values) {
+            (Element::K { .. }, &[r, c]) => Some(Element::K { r, tau_k: r * c }),
+            (Element::Zarc { .. }, &[r, q, alpha]) => Some(Element::Zarc {
+                r,
+                tau_k: (q * r).powf(1.0 / alpha.max(1e-6)),
+                gamma: alpha,
+            }),
+            _ => None,
+        }
+    }
+
     /// Default physical-validity bounds per parameter, derived from `param_names()`:
     /// fields named "alpha" or "gamma" are fractional exponents bounded to [0, 1];
     /// everything else is a positive magnitude/time-constant bounded to (~0, inf).

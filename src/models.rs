@@ -248,12 +248,38 @@ pub fn apply_permutation(permutation: &[usize], values: &[f64]) -> Vec<f64> {
     permutation.iter().map(|&i| values[i]).collect()
 }
 
+/// A trained model paired with a circuit, and how to get its guess into that
+/// circuit's parameter order.
+pub struct Match<T> {
+    pub model: T,
+    /// Trained parameter order -> matched topology's order.
+    pub permutation: Vec<usize>,
+    /// Whether matching needed `K`/`Zarc` expanded. Guessed values are then in
+    /// the expanded circuit's parameters and must be contracted back.
+    pub expanded: bool,
+}
+
+/// `match_topology`, retried with `K`/`Zarc` expanded to the parallel pairs they
+/// abbreviate. E.g. `R-K` expands to `R-(R,C)`, matching a trained circuit.
+fn match_or_expand(trained: &[Node], topology: &[Node]) -> Option<(Vec<usize>, bool)> {
+    if let Some(permutation) = match_topology(trained, topology) {
+        return Some((permutation, false));
+    }
+    let expanded = crate::circuit::expand_arcs(topology)?;
+    Some((match_topology(trained, &expanded)?, true))
+}
+
 /// The model trained for `topology`, with the permutation taking its parameter
 /// order to `topology`'s. See `match_topology` for what counts as a match.
-pub fn find_for_topology(topology: &[Node]) -> Option<(&'static Model, Vec<usize>)> {
+pub fn find_for_topology(topology: &[Node]) -> Option<Match<&'static Model>> {
     all().iter().find_map(|m| {
         let trained = crate::circuit::parse(m.circuit).ok()?;
-        Some((m, match_topology(&trained, topology)?))
+        let (permutation, expanded) = match_or_expand(&trained, topology)?;
+        Some(Match {
+            model: m,
+            permutation,
+            expanded,
+        })
     })
 }
 
@@ -267,7 +293,7 @@ static EXTERNAL: OnceLock<Mutex<HashMap<String, &'static nn::Guesser>>> = OnceLo
 pub fn load_external(
     path: &str,
     topology: &[Node],
-) -> Result<(&'static nn::Guesser, Vec<usize>), NnError> {
+) -> Result<Match<&'static nn::Guesser>, NnError> {
     let cache = EXTERNAL.get_or_init(|| Mutex::new(HashMap::new()));
     let mut map = cache.lock().expect("weights cache poisoned");
 
@@ -282,13 +308,17 @@ pub fn load_external(
 
     let trained = crate::circuit::parse(guesser.circuit())
         .map_err(|_| NnError::BadValue(format!("circuit {:?} in {path}", guesser.circuit())))?;
-    let permutation = match_topology(&trained, topology).ok_or_else(|| {
+    let (permutation, expanded) = match_or_expand(&trained, topology).ok_or_else(|| {
         NnError::BadValue(format!(
             "{path} was trained for {:?}, which is a different circuit",
             guesser.circuit()
         ))
     })?;
-    Ok((guesser, permutation))
+    Ok(Match {
+        model: guesser,
+        permutation,
+        expanded,
+    })
 }
 
 /// Message for a circuit that has no trained weights.
@@ -330,13 +360,31 @@ mod tests {
             assert_eq!(guesser.circuit(), model.circuit);
 
             let topology = parse(model.circuit).expect("registry circuit must parse");
-            let (found, permutation) = find_for_topology(&topology).unwrap();
-            assert!(std::ptr::eq(found, model));
+            let found = find_for_topology(&topology).unwrap();
+            assert!(std::ptr::eq(found.model, model));
+            assert!(!found.expanded);
+            let permutation = found.permutation;
             assert_eq!(permutation, (0..permutation.len()).collect::<Vec<_>>());
             assert_eq!(
                 guesser.param_names(),
                 crate::circuit::param_names(&topology)
             );
+        }
+    }
+
+    #[test]
+    fn arc_circuits_reach_the_models_trained_on_written_out_arcs() {
+        for (circuit, expected) in [
+            ("R0-K1", "rc"),
+            ("R0-Zarc1", "rq"),
+            ("L0-R0-Zarc1", "rq_l"),
+            ("R0-Zarc1-Zarc2", "two_rq"),
+            ("R0-Zarc1-(R2,Cpe2)", "two_rq"),
+        ] {
+            let found = find_for_topology(&parse(circuit).unwrap())
+                .unwrap_or_else(|| panic!("{circuit} should reach a model"));
+            assert_eq!(found.model.name, expected, "{circuit}");
+            assert!(found.expanded, "{circuit}");
         }
     }
 

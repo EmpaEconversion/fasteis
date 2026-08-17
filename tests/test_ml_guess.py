@@ -58,6 +58,42 @@ def test_guess_reaches_labelled_and_reordered_parallel_branches() -> None:
     assert values["R8.r"] > 0.0
 
 
+ARC_CASES = [
+    ("R0-K1", {"R0.r": 8.0, "K1.r": 60.0, "K1.tau_k": 2e-3}),
+    ("R0-Zarc1", {"R0.r": 12.0, "Zarc1.r": 85.0, "Zarc1.tau_k": 4e-4, "Zarc1.gamma": 0.78}),
+]
+
+
+@pytest.mark.parametrize(("circuit_str", "truth"), ARC_CASES)
+def test_arc_element_guesses_via_the_written_out_model(
+    circuit_str: str, truth: dict[str, float]
+) -> None:
+    """K and Zarc match the models trained on (R,C) and (R,Cpe)."""
+    spectrum = _spectrum(circuit_str, **truth)
+    circuit = fasteis.Circuit(circuit_str)
+
+    guess = dict(zip(circuit.param_names(), circuit.guess(FREQS, spectrum), strict=True))
+
+    assert set(guess) == set(truth)
+    for name, expected in truth.items():
+        assert guess[name] == pytest.approx(expected, rel=0.25)
+
+
+@pytest.mark.parametrize(("circuit_str", "truth"), ARC_CASES)
+def test_arc_element_fits_from_its_guess_without_warning(
+    circuit_str: str, truth: dict[str, float]
+) -> None:
+    spectrum = _spectrum(circuit_str, **truth)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        result = fasteis.Circuit(circuit_str).fit(FREQS, spectrum)
+
+    assert result.success
+    for name, expected in truth.items():
+        assert result.params[name] == pytest.approx(expected, rel=1e-3)
+
+
 def test_guess_still_rejects_a_circuit_with_no_trained_model() -> None:
     with pytest.raises(ValueError, match="No training data on this circuit"):
         fasteis.Circuit("R0-(R1,C1)-(R2,C2)-(R3,C3)").guess(FREQS, Z)
