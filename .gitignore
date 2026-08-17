@@ -73,3 +73,6 @@ docs/_build/
 
 # Torch model checkpoints
 *.pt
+
+# Zensical
+site/
