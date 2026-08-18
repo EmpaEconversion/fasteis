@@ -70,7 +70,6 @@ pub struct FitOutcome {
     pub params: Vec<f64>,
     pub success: bool,
     pub iterations: u64,
-    /// Full impedance sweeps spent, including Jacobians and restarts.
     pub impedance_evals: u64,
     pub cost: f64,
     pub chi_square: f64,

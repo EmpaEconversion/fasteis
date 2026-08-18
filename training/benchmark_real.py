@@ -64,7 +64,7 @@ def _fit(built: fasteis.Circuit, m: Measured, **kwargs) -> tuple[float, int, flo
         return float("inf"), 0, time.perf_counter() - t0
     elapsed = time.perf_counter() - t0
     chi = result.chi_square if np.isfinite(result.chi_square) else float("inf")
-    return chi, int(result.impedance_evaluations), elapsed
+    return chi, int(result.impedance_evals), elapsed
 
 
 def strategies(circuit: circuits.TrainingCircuit, *, with_global: bool) -> dict:

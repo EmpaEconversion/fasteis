@@ -80,7 +80,7 @@ def bench_compositions() -> list[BenchRow]:
 
 def _print_table(title: str, rows: list[BenchRow]) -> None:
     print(f"\n{title} ({N_FREQS} frequencies/call, {N_REPEATS} repeats)")
-    print(f"{'name':<28} {'eis (ms)':>10} {'impedance.py (ms)':>20} {'speedup':>10}")
+    print(f"{'name':<28} {'fasteis (ms)':>10} {'impedance.py (ms)':>20} {'speedup':>10}")
     for name, eis_ms, ipy_ms in rows:
         print(f"{name:<28} {eis_ms:>10.4f} {ipy_ms:>20.4f} {ipy_ms / eis_ms:>9.1f}x")
 

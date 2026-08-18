@@ -659,8 +659,6 @@ pub struct FitResult {
     pub success: bool,
     #[pyo3(get)]
     pub iterations: u64,
-    /// Full impedance sweeps spent, including Jacobians and restarts. A better
-    /// cost measure than `iterations`, which counts residual calls only.
     #[pyo3(get)]
     pub impedance_evals: u64,
     #[pyo3(get)]
