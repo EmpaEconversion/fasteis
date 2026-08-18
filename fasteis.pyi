@@ -4,6 +4,28 @@ from typing import Literal, Protocol, SupportsComplex, SupportsFloat
 import numpy as np
 import numpy.typing as npt
 
+__all__ = [
+    "C",
+    "Circuit",
+    "Cpe",
+    "Element",
+    "FitResult",
+    "G",
+    "Gs",
+    "K",
+    "L",
+    "La",
+    "Parallel",
+    "R",
+    "Series",
+    "T",
+    "Tlmq",
+    "W",
+    "Wo",
+    "Ws",
+    "Zarc",
+]
+
 class _FloatArray(Protocol):
     def __len__(self) -> int: ...
     def __iter__(self) -> Iterator[SupportsFloat]: ...
@@ -250,7 +272,7 @@ class FitResult:
     iterations: int
     """Optimiser iterations, counting residual calls only."""
     impedance_evals: int
-    """Full impedance sweeps spent, including Jacobians and restarts."""
+    """Number of impedance sweeps calculated during fit, including Jacobians and restarts."""
     cost: float
     """Half the sum of squared weighted residuals, the quantity minimised."""
     chi_square: float
