@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Benchmarks against impedance.py.
 
 Benchmark across every circuit element and every composed circuit topology used

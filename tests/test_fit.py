@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Tests for Circuit.fit()."""
 
 from __future__ import annotations

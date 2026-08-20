@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Sampling of synthetic spectra.
 
 The frequency sweep, noise model and the artifacts are circuit-agnostic.

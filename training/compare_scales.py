@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Compares the (k, w_c) estimators in scales.py.
 
 A good scale estimator collapses physically equivalent impedance curves on top

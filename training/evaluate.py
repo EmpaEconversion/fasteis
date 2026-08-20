@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Benchmark harness for fitting.
 
 FLOOR is the number of fit iterations when starting from the correc parameters.

@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """The `.eisnn` weight container read by src/nn.rs.
 
 Flat self-describing little-endian binary layout:

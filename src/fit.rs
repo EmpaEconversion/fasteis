@@ -1,3 +1,4 @@
+// Copyright © 2026, Empa.
 use std::cell::RefCell;
 use std::f64::consts::TAU;
 

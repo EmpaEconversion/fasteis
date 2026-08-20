@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Checks the normalisation in circuits.py against the Rust implementation.
 
 Tests the scaling table for circuit parameters, i.e., how the impedance/

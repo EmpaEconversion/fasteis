@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Residual loss against the observed curve.
 
 Generic: the only circuit-specific part is `TrainingCircuit.impedance_torch`,

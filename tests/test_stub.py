@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Tests that the type stub declares the same public API as the module."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Benchmarks Circuit.fit() against impedance.py's circuit_fit.
 
 By default runs a small sample of cases and skips the slow global/derivative-free

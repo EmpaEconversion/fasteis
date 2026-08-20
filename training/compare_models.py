@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Compares trained models for one circuit on synthetic and measured spectra.
 
 Scores each `.eisnn` by what a fit costs after using its guess. Score is the

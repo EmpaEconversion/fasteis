@@ -1,3 +1,4 @@
+// Copyright © 2026, Empa.
 use std::collections::{HashMap, HashSet};
 
 use num_complex::Complex64;

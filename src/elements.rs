@@ -1,3 +1,4 @@
+// Copyright © 2026, Empa.
 use num_complex::Complex64;
 use pyo3::prelude::*;
 

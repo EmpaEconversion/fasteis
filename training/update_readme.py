@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Renders benchmark results into README.md.
 
 `benchmark.py` writes one json per circuit to `training/results/`. This turns

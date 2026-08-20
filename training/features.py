@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Interpolate and rescale the impedance spectrum for model inputs.
 
 Interpolates the inputs to 64 points in log frequency.

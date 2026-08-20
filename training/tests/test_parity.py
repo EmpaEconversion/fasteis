@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Ensure equivalent Python and Rust implementations agree.
 
 - `TrainingCircuit.impedance_torch` reimplements the circuit maths from

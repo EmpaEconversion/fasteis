@@ -1,3 +1,4 @@
+// Copyright © 2026, Empa.
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;
 

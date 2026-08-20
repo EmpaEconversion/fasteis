@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """The parameter guessing network.
 
 A 1-D CNN over the log-frequency axis. Shifting a time constant translates

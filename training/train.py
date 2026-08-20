@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Train the param-guessing network.
 
 The primary loss is the modulus-weighted residual of guess vs real curve.

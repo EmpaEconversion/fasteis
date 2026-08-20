@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Tests for the eis.Circuit(str) constructor and the associated value-setting API."""
 
 from __future__ import annotations

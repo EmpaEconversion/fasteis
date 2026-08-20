@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Regression tests for Circuit.fit() against a few known real datasets.
 
 Update KNOWN_GOOD_CASES with new costs if they improve.

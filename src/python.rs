@@ -1,3 +1,4 @@
+// Copyright © 2026, Empa.
 use std::collections::HashMap;
 use std::f64::consts::TAU;
 use std::ffi::CString;

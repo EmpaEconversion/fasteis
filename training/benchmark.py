@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Final evaluation: the shipped model against FLOOR and the library defaults.
 
 Reports the convergence rate and the excess evaluations for fits.

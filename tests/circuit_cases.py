@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Circuit element/circuit definitions used in tests and benchmarks."""
 
 from __future__ import annotations

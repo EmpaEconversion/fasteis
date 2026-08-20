@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Candidate estimators for the impedance scale `k` and frequency scale `w_c`.
 
 The scales should ideally collapse circuits with different parameters onto a

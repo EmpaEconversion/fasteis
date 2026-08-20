@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Regression tests.
 
 Compare against reference implementations in impedance.py.

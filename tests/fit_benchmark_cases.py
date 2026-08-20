@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Benchmark for fitting against test data."""
 
 from __future__ import annotations

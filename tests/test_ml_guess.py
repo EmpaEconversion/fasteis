@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Tests for Circuit.guess(), element ordering, and when fit() guesses by default."""
 
 from __future__ import annotations

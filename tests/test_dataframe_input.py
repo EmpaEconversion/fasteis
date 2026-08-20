@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Tests for reading from battery data format dataframe."""
 
 from __future__ import annotations

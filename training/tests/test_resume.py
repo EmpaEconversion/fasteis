@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Resuming a run must not inherit the previous schedule's exhausted learning rate."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+// Copyright © 2026, Empa.
 //! Registry of circuits with trained initial-parameter models.
 
 use std::collections::HashMap;

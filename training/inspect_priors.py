@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Sanity-checks for the priors of one circuit.
 
 A prior is useless for training if it mostly produces curves whose features fall

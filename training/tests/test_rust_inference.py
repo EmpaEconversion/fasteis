@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """The public guessing API: circuit lookup, guess_init, and the weight container."""
 
 from __future__ import annotations

@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Measures how fast synthetic Randles spectra can be generated from Python.
 
 Decides whether `fasteis` can feed a training loop directly or whether

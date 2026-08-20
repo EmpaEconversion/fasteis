@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Everything that varies from one trainable circuit to the next.
 
 A `TrainingCircuit` contains the circuit topology, parameters, how those

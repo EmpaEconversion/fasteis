@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Benchmarks initial-parameter sources against measured spectra.
 
 Ground truth is unknown. The reference is the best chi-square any strategy

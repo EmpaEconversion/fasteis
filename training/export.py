@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """Converts a torch checkpoint into the `.eisnn` container embedded by src/models.rs."""
 
 from __future__ import annotations

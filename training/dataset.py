@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 """On-the-fly generation of training batches."""
 
 from __future__ import annotations

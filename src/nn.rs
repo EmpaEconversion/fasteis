@@ -1,3 +1,4 @@
+// Copyright © 2026, Empa.
 //! Neural-network initial-parameter guessing.
 //!
 //! Loads a `.eisnn` file produced by `training/export.py` to run inference.

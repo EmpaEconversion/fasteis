@@ -1,3 +1,4 @@
+# Copyright © 2026, Empa.
 from collections.abc import Iterator, Sequence
 from typing import Literal, Protocol, SupportsComplex, SupportsFloat
 
