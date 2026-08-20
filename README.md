@@ -4,6 +4,9 @@
 
 <br>
 
+> [!WARNING]
+> In early development, not yet suitable for use in production
+
 A library for simulating EIS with equivalent circuits.
 
 `fasteis` uses a few tricks to make EIS fitting faster and more reliable:
