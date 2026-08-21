@@ -1,8 +1,8 @@
 # Copyright © 2026, Empa.
-"""Renders benchmark results into README.md.
+"""Renders benchmark results into the Zensical docs.
 
 `benchmark.py` writes one json per circuit to `training/results/`. This turns
-them into markdown and substitutes it between the markers in the README.
+them into markdown and substitutes it between the markers in `docs/models/`.
 
     <!-- results:randles -->
     ...replaced...
@@ -51,9 +51,6 @@ def _table(rows: list[dict]) -> list[str]:
 def render(results: dict) -> str:
     """Markdown for one circuit's results."""
     lines = [
-        "<details>",
-        "<summary>Show details</summary>",
-        "",
         f"`{results['circuit_str']}`, {results['n_spectra']} synthetic spectra. "
         f"Inference costs {results['inference_ms']:.2f} ms/spectrum against "
         f"{results['floor_fit_ms']:.2f} ms for the fit it starts.",
@@ -63,11 +60,12 @@ def render(results: dict) -> str:
         rows = results["fitters"].get(key)
         if not rows:
             continue
-        lines += [heading, *_table(rows), ""]
+        lines += [heading, "", *_table(rows), ""]
 
     error = results["param_error_pct"]
     lines += [
         "Relative error of the ml guess, before fitting (%):",
+        "",
         "| | " + " | ".join(f"`{name}`" for name in error) + " |",
         "|---" * (len(error) + 1) + "|",
     ]
@@ -75,7 +73,6 @@ def render(results: dict) -> str:
         cells = " | ".join(f"{error[name][stat]:.1f}" for name in error)
         lines.append(f"| {stat} | {cells} |")
 
-    lines += ["</details>"]
     return "\n".join(lines)
 
 
@@ -93,7 +90,7 @@ def render_library(every: dict[str, dict]) -> str:
             rows["ml guess"],
         )
         lines.append(
-            f"| `{name}` | `{results['circuit_str']}` "
+            f"| [`{name}`]({name}.md) | `{results['circuit_str']}` "
             f"| {len(results['param_error_pct'])} "
             f"| {100 * defaults['converged']:.1f}% "
             f"| **{100 * ml['converged']:.1f}%** "
@@ -106,9 +103,6 @@ def render_library(every: dict[str, dict]) -> str:
 def render_real_data_test(results: dict) -> str:
     """Markdown for one circuit's measured-data results."""
     lines = [
-        "<details>",
-        "<summary>Show details</summary>",
-        "",
         f"`{results['circuit']}` against {results['n_spectra']} measured spectra. "
         f"Ground truth is not known, so 'converged' means within tolerance of the "
         "best chi-square reached.",
@@ -128,7 +122,6 @@ def render_real_data_test(results: dict) -> str:
             cells = [f"**{c}**" for c in cells]
         lines.append("| " + " | ".join(cells) + " |")
 
-    lines += ["</details>"]
     return "\n".join(lines)
 
 
@@ -144,13 +137,12 @@ def substitute(text: str, name: str, body: str) -> tuple[str, bool]:
 
 
 def main() -> None:
-    """Render every available result file into the README."""
+    """Render every available result file into the docs."""
     p = argparse.ArgumentParser()
     p.add_argument("--results", type=Path, default=Path("training/results"))
-    p.add_argument("--readme", type=Path, default=Path("training/README.md"))
+    p.add_argument("--docs", type=Path, default=Path("docs/models"))
     args = p.parse_args()
 
-    text = args.readme.read_text(encoding="utf-8")
     every = {}
     for name in circuits.CIRCUITS:
         path = args.results / f"{name}.json"
@@ -158,21 +150,30 @@ def main() -> None:
             print(f"{name:<15} no results yet, run benchmark.py --circuit {name}")
             continue
         every[name] = json.loads(path.read_text(encoding="utf-8"))
-        text, found = substitute(text, name, render(every[name]))
-        print(f"{name:<15} updated from {path}" if found else f"{name:<15} summary row only")
+
+        page = args.docs / f"{name}.md"
+        page_text = page.read_text(encoding="utf-8")
+        page_text, found = substitute(page_text, name, render(every[name]))
+        print(
+            f"{name:<15} updated from {path}"
+            if found
+            else f"{name:<15} no <!-- results:{name} --> markers in {page}"
+        )
 
         real = args.results / f"{name}_real.json"
         if real.exists():
             body = render_real_data_test(json.loads(real.read_text(encoding="utf-8")))
-            text, found = substitute(text, f"{name}_real", body)
+            page_text, found = substitute(page_text, f"{name}_real", body)
             if found:
                 print(f"{name + '_real':<15} updated from {real}")
+        page.write_text(page_text, encoding="utf-8")
 
     if every:
-        text, found = substitute(text, "library", render_library(every))
+        index = args.docs / "index.md"
+        index_text = index.read_text(encoding="utf-8")
+        index_text, found = substitute(index_text, "library", render_library(every))
         print(f"library         {'updated' if found else 'no <!-- results:library --> markers'}")
-
-    args.readme.write_text(text, encoding="utf-8")
+        index.write_text(index_text, encoding="utf-8")
 
 
 if __name__ == "__main__":
