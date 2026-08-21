@@ -98,33 +98,62 @@ fn collect_leaves<'a>(series: &'a [Node], out: &mut Vec<(&'a Element, &'a Option
     }
 }
 
-/// Parameter names, in the same order as `param_values()`. Labeled leaves (parsed
-/// from a circuit string) use their label verbatim, e.g. "Cpe1.q"; unlabeled
-/// leaves keep the auto-generated, stable, collision-free scheme, e.g. "R0.r" --
-/// numbered per element-type in traversal order, counting only unlabeled leaves
-/// of that type.
-pub fn param_names(series: &[Node]) -> Vec<String> {
+/// Label for each leaf, in traversal order: the parsed label if any, otherwise
+/// numbered in traversal order, counting only unlabeled leaves of that type.
+fn leaf_labels(series: &[Node]) -> Vec<String> {
     let mut counters: HashMap<&'static str, usize> = HashMap::new();
     leaves(series)
         .into_iter()
-        .flat_map(|(e, label)| {
-            let tag = e.type_tag();
-            let owned_label;
-            let label: &str = match label {
-                Some(l) => l,
-                None => {
-                    let idx = counters.entry(tag).or_insert(0);
-                    owned_label = format!("{tag}{idx}");
-                    *idx += 1;
-                    &owned_label
-                }
-            };
+        .map(|(e, label)| match label {
+            Some(l) => l.clone(),
+            None => {
+                let tag = e.type_tag();
+                let idx = counters.entry(tag).or_insert(0);
+                let label = format!("{tag}{idx}");
+                *idx += 1;
+                label
+            }
+        })
+        .collect()
+}
+
+/// Parameter names, in the same order as `param_values()`, e.g. "R0.r", "Cpe1.q".
+pub fn param_names(series: &[Node]) -> Vec<String> {
+    leaves(series)
+        .into_iter()
+        .zip(leaf_labels(series))
+        .flat_map(|((e, _), label)| {
             e.param_names()
                 .iter()
                 .map(move |n| format!("{label}.{n}"))
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+/// The topology string this series would re-parse from, e.g. `"R0-(R1,C1)"`.
+/// Uses the same labels as `param_names()`.
+pub fn topology(series: &[Node]) -> String {
+    let mut labels = leaf_labels(series).into_iter();
+    format_series(series, &mut labels)
+}
+
+fn format_series(series: &[Node], labels: &mut impl Iterator<Item = String>) -> String {
+    series
+        .iter()
+        .map(|node| format_node(node, labels))
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn format_node(node: &Node, labels: &mut impl Iterator<Item = String>) -> String {
+    match node {
+        Node::Element(_, _) => labels.next().expect("one label per leaf"),
+        Node::Parallel(branches) => {
+            let parts: Vec<String> = branches.iter().map(|b| format_series(b, labels)).collect();
+            format!("({})", parts.join(","))
+        }
+    }
 }
 
 /// Current parameter values, in the same order as `param_names()`.
@@ -734,6 +763,38 @@ mod tests {
     fn bare_parens_nest_like_p_parens() {
         let circuit = parse("(R0,(R1,C1))").unwrap();
         assert_eq!(param_names(&circuit), vec!["R0.r", "R1.r", "C1.c"]);
+    }
+
+    #[test]
+    fn topology_renders_parsed_labels_verbatim() {
+        for (text, expected) in [
+            ("R0-C1", "R0-C1"),
+            ("R0-p(R1,Cpe1)", "R0-(R1,Cpe1)"),
+            ("R0-p(R1-C1,R2-Cpe2)", "R0-(R1-C1,R2-Cpe2)"),
+            ("p(R0,p(R1,C1))", "(R0,(R1,C1))"),
+        ] {
+            assert_eq!(topology(&parse(text).unwrap()), expected);
+        }
+    }
+
+    #[test]
+    fn topology_of_a_built_circuit_uses_the_same_auto_labels_as_param_names() {
+        let circuit = vec![
+            r(1.0),
+            Node::Parallel(vec![vec![r(2.0)], vec![cpe(3.0, 0.5)]]),
+            cpe(4.0, 0.9),
+        ];
+        assert_eq!(topology(&circuit), "R0-(R1,Cpe0)-Cpe1");
+    }
+
+    #[test]
+    fn topology_round_trips_through_parse() {
+        let circuit = parse("R7-(R9-W4,CPE2)").unwrap();
+        let rendered = topology(&circuit);
+        assert_eq!(
+            param_names(&parse(&rendered).unwrap()),
+            param_names(&circuit)
+        );
     }
 
     #[test]

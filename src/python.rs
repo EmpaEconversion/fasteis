@@ -7,6 +7,7 @@ use num_complex::Complex64;
 use numpy::{IntoPyArray, PyArray1};
 use pyo3::exceptions::{PyUserWarning, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use rayon::prelude::*;
 
 use crate::circuit::{self, Node, Series};
@@ -299,11 +300,14 @@ impl Circuit {
         })
     }
 
-    /// Names accepted by the constructor that have trained initial-parameter
-    /// models, and so get a guessed starting point from `fit()` by default.
+    /// Available trained models, name: topology dict.
     #[staticmethod]
-    fn ml_circuits() -> Vec<&'static str> {
-        models::names()
+    fn ml_circuits(py: Python<'_>) -> PyResult<Bound<'_, PyDict>> {
+        let dict = PyDict::new(py);
+        for model in models::all() {
+            dict.set_item(model.name, model.circuit)?;
+        }
+        Ok(dict)
     }
 
     /// Machine-learning guess of starting parameters for this circuit's
@@ -639,7 +643,8 @@ impl Circuit {
         let units = circuit::param_units(&self.node);
         let bounds = circuit::param_bounds(&self.node);
         format!(
-            "Circuit ({} parameter{})\n{}",
+            "Circuit {} ({} parameter{})\n{}",
+            circuit::topology(&self.node),
             names.len(),
             if names.len() == 1 { "" } else { "s" },
             circuit::describe_params(&names, &values, &units, &bounds)

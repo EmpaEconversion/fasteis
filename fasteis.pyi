@@ -304,8 +304,8 @@ class Circuit:
         """
 
     @staticmethod
-    def ml_circuits() -> list[str]:
-        """Built-in circuit names that have trained initial-parameter models.
+    def ml_circuits() -> dict[str, str]:
+        """Built-in circuits that have trained initial-parameter models.
 
         These get a guessed starting point from `fit()` by default.
         """
