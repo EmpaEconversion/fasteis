@@ -9,7 +9,7 @@ name = "fasteis"
 crate-type = ["cdylib"]
 
 [dependencies]
-pyo3 = { version = "0.25.0", features = ["num-complex"] }
+pyo3 = { version = "0.25.0", features = ["num-complex", "abi3-py38"] }
 num-complex = "0.4.6"
 numpy = "0.25"
 rayon = "1.10"
