@@ -4,6 +4,10 @@
 
 <br>
 
+[![Docs](https://img.shields.io/badge/docs-gh--pages-blue.svg)](https://empaeconversion.github.io/fasteis/)
+[![PyPI version](https://img.shields.io/pypi/v/fasteis.svg)](https://pypi.org/project/fasteis/)
+
+
 > [!WARNING]
 > In early development, not yet suitable for use in production
 
@@ -28,3 +32,5 @@ import fasteis
 circuit = fasteis.Circuit("R0-(CPE1,R1-W1)")
 result = circuit.fit(f, Z)
 ```
+
+See the [docs](https://empaeconversion.github.io/fasteis/) for more details.
