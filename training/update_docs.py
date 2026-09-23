@@ -19,11 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from training import circuits
+from training import circuits, evaluate, priors, serialize_weights
 
 FITTERS = (
-    ("plain_lm", "Plain LM:"),
-    ("circuit_fit", "`Circuit.fit()` / smart LM, which screens candidate starts:"),
+    ("plain_lm", "### Plain LM"),
+    ("circuit_fit", "### `Circuit.fit()`"),
 )
 
 
@@ -48,14 +48,19 @@ def _table(rows: list[dict]) -> list[str]:
     return out
 
 
+def render_model(results: dict, weights: Path) -> str:
+    """One line on the size and cost of a circuit's bundled model."""
+    _, tensors = serialize_weights.read(weights)
+    n_weights = sum(t.size for name, t in tensors.items() if name.startswith("w."))
+    return (
+        f"ML model: {n_weights / 1000:.0f}k parameter 1D CNN, trained on synthetic data, "
+        f"{results['inference_ms']:.1f} ms per guess. See [Training](../training.md)."
+    )
+
+
 def render(results: dict) -> str:
     """Markdown for one circuit's results."""
-    lines = [
-        f"`{results['circuit_str']}`, {results['n_spectra']} synthetic spectra. "
-        f"Inference costs {results['inference_ms']:.2f} ms/spectrum against "
-        f"{results['floor_fit_ms']:.2f} ms for the fit it starts.",
-        "",
-    ]
+    lines = []
     for key, heading in FITTERS:
         rows = results["fitters"].get(key)
         if not rows:
@@ -64,7 +69,9 @@ def render(results: dict) -> str:
 
     error = results["param_error_pct"]
     lines += [
-        "Relative error of the ml guess, before fitting (%):",
+        "### Error of the guess",
+        "",
+        "Relative error of each guessed parameter before fitting, in %.",
         "",
         "| | " + " | ".join(f"`{name}`" for name in error) + " |",
         "|---" * (len(error) + 1) + "|",
@@ -74,6 +81,40 @@ def render(results: dict) -> str:
         lines.append(f"| {stat} | {cells} |")
 
     return "\n".join(lines)
+
+
+def render_method(results: dict) -> str:
+    """Markdown describing how one circuit's benchmark was run."""
+    cfg = priors.DEFAULT
+    noise_lo, noise_hi = (100 * 10.0**x for x in cfg.log_noise)
+    tol_pct = 100 * (evaluate.CONVERGENCE_TOL - 1)
+    alpha = (
+        f", CPE exponents ±{evaluate.PERTURB_ALPHA:g}"
+        if circuits.get(results["circuit"]).linear_params
+        else ""
+    )
+    factor = f"{evaluate.PERTURB_FACTOR:g}"
+    return "\n".join(
+        [
+            f"Synthetic benchmarks use {results['n_spectra']} spectra drawn from the same "
+            "distribution as the training data, with a different seed: "
+            f"{cfg.decades[0]:g} to {cfg.decades[1]:g} decade sweeps of {cfg.n_points[0]} to "
+            f"{cfg.n_points[1]} points, with {noise_lo:.1f}% to {noise_hi:.0f}% noise.",
+            "",
+            "- **floor (truth)**: start from the true parameters.",
+            "- **library defaults**: start from the `Circuit()` placeholder values.",
+            f"- **truth x/div {factor}**: true magnitudes multiplied or divided by {factor} "
+            f"at random{alpha}.",
+            "- **ml guess**: start from `Circuit.guess()`.",
+            "",
+            "Plain LM is a single-start Levenberg-Marquardt. `Circuit.fit()` is "
+            "LM that also screens candidate starts and restarts on bad fits.",
+            "",
+            f"**Converged**: final cost within {tol_pct:g}% of the fit from the truth. "
+            "**Sweeps**: impedance evaluations of the whole spectrum, including Jacobians. "
+            "**Excess**: sweeps beyond the fit from the truth, for converged fits only.",
+        ]
+    )
 
 
 def render_library(every: dict[str, dict]) -> str:
@@ -141,6 +182,7 @@ def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--results", type=Path, default=Path("training/results"))
     p.add_argument("--docs", type=Path, default=Path("docs/models"))
+    p.add_argument("--models", type=Path, default=Path("src/models"))
     args = p.parse_args()
 
     every = {}
@@ -154,6 +196,9 @@ def main() -> None:
         page = args.docs / f"{name}.md"
         page_text = page.read_text(encoding="utf-8")
         page_text, found = substitute(page_text, name, render(every[name]))
+        page_text, _ = substitute(page_text, f"{name}_method", render_method(every[name]))
+        model = render_model(every[name], args.models / f"{name}.eisnn")
+        page_text, _ = substitute(page_text, f"{name}_model", model)
         print(
             f"{name:<15} updated from {path}"
             if found
