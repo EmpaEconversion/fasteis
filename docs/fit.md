@@ -5,9 +5,9 @@ Use `Circuit.fit()`
 ```python
 from fasteis import Circuit
 
-circuit = Circuit("R1-(R2,C2)")
+circ = Circuit("R1-(R2,C2)")
 
-res = circuit.fit(f, Z)
+res = circ.fit(f, Z)
 ```
 where `f` and `Z` are sequences of frequencies and complex impedances.
 
@@ -17,11 +17,11 @@ You can also pass a 'Battery Data Format' style dataframe directly:
 from fasteis import Circuit
 import bdf
 
-circuit = Circuit("R1-(R2,C2)")
+circ = Circuit("R1-(R2,C2)")
 
 df = bdf.read("my/bdf/file.parquet")
 
-res = circuit.fit(df)
+res = circ.fit(df)
 ```
 
 ## Machine learning guesses
@@ -45,5 +45,5 @@ E.g. the `"rc"` circuit `"R0-(R1,C1)"` will match the following:
 
 You can force or disable the machine learning guess with:
 ```python
-circuit.fit(f, Z, guess_init=False)
+circ.fit(f, Z, guess_init=False)
 ```
