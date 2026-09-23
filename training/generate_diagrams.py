@@ -9,6 +9,7 @@ Saves light and dark mode diagrams and plots.
 
 from __future__ import annotations
 
+import io
 import re
 import sys
 from pathlib import Path
@@ -17,6 +18,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import schemdraw
 import schemdraw.elements as elm
+from scour import scour
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -35,6 +37,33 @@ BRANCH_SPACING = 1.25
 LEAD_LENGTH = 0.5
 
 _TOKEN_RE = re.compile(r"^([A-Za-z]+)(\d+)$")
+
+# Small, reproducible SVGs: text as <text> not glyph paths, stable ids, no timestamp
+plt.rcParams["svg.fonttype"] = "none"
+plt.rcParams["svg.hashsalt"] = "fasteis"
+plt.rcParams["font.family"] = "sans-serif"
+plt.rcParams["font.sans-serif"] = ["Arial"]
+SCOUR_OPTIONS = scour.parse_args(
+    [
+        "--enable-id-stripping",
+        "--shorten-ids",
+        "--remove-descriptive-elements",
+        "--enable-comment-stripping",
+        "--strip-xml-prolog",
+        "--no-line-breaks",
+        "--set-precision=4",
+    ]
+)
+
+
+def _save_svg(fig: plt.Figure, out_path: Path, **savefig_kwargs) -> None:
+    """Save `fig` as a minified, transparent SVG."""
+    for artist in fig.axes[0].get_children():
+        artist.set_clip_on(False)
+    buf = io.StringIO()
+    fig.savefig(buf, format="svg", transparent=True, metadata={"Date": None}, **savefig_kwargs)
+    out_path.write_text(scour.scourString(buf.getvalue(), SCOUR_OPTIONS), encoding="utf-8")
+    plt.close(fig)
 
 
 def _split_top_level(s: str, sep: str) -> list[str]:
@@ -144,8 +173,7 @@ def render_schematic(circuit_str: str, color: str, out_path: Path) -> None:
     d += elm.Line().at((end_x, y)).right().length(LEAD_LENGTH)
     d += elm.Dot().at((end_x + LEAD_LENGTH, y))
 
-    d.save(str(out_path), transparent=True)
-    plt.close("all")
+    _save_svg(d.draw(show=False).getfig(), out_path, bbox_inches="tight", pad_inches=0)
 
 
 # One value per parameter name, shared by every circuit, so e.g. the first
@@ -168,7 +196,7 @@ NYQUIST_PARAMS: dict[str, float] = {
     "Wo2.z0": 0.8,
     "Wo2.tau": 10.0,
 }
-NYQUIST_FREQS = np.logspace(-2, 6, 600)
+NYQUIST_FREQS = np.logspace(-2, 6, 200)
 
 # Shared limits so every plot has the same scale and size; circuits with an
 # inductor shift the window down to show the tail below the real axis.
@@ -201,8 +229,7 @@ def render_nyquist(circuit_str: str, color: str, axis_color: str, out_path: Path
     ax.set_ylim(*y_lim)
     ax.set_aspect("equal")
     ax.axis("off")
-    fig.savefig(out_path, transparent=True)
-    plt.close(fig)
+    _save_svg(fig, out_path)
 
 
 def main() -> None:
