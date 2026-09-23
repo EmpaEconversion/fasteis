@@ -4,18 +4,16 @@ Convolutional neural networks of particular circuits are trained to be used
 for initial guesses in `Circuit.fit()`, to (hopefully) converge reliably
 and quickly without any manual initial guess.
 
-The `fasteis` comes bundled with pre-trained models. The `fasteis` PyPI package
+`fasteis` comes bundled with pre-trained models. The `fasteis` PyPI package
 does not come with all the training infrastructure. Training new circuits
 requires a clone of the repository, and extra dependencies like torch.
 
 Trained models and their benchmark results are listed under [Models](models/index.md).
 
-The `fasteis` repository contains scripts to train circuit models.
-
 ## Model
 
 All models use a 1D convolutional neural network over log-frequency, starting
-with a 3x64 matrix of normalized |Z|, phase, and frequency.
+with a 3x64 matrix of normalised |Z|, phase, and frequency.
 
 Shifting a time constant translates features in frequency, so 1D
 convolution along the frequency axis works well (translation equivariance
@@ -47,7 +45,7 @@ point count.
 
 ## Scaling symmetries
 
-The frequencies, impedance, and the parameters are all renomalised so the model
+The frequencies, impedance, and the parameters are all renormalised so the model
 only needs to learn the curve shape, and not the scale.
 
 Impedance is invariant under `Z -> k*Z` and `w -> w/w_c` when parameters are
@@ -70,12 +68,12 @@ capacitances `(-1, -1, 0, -1)`, inductances `(1, -1, 0, -1)`, time constants
 Several methods have been tried, with `reactive_centroid` seeming the best.
 Here, each point is weighted by `max(-sin(phase), 0)`, bounded in `[0,1]`
 and scale-free, then takes log-space weighted means of `|Z|` and `w`. This means
-featureless parts of the curve carry little weight, so widening the sweet beyond
+featureless parts of the curve carry little weight, so widening the sweep beyond
 the features does not move the scaling estimates.
 
 See `compare_scales.py` for details of the comparison. The numbers here are how
 much the target (scaled) parameters shift between different conditions. A good
-scale estimator minimizes all three of these:
+scale estimator minimises all three of these:
 
 | estimator | across systems | across sweeps | across noise |
 |---|---|---|---|

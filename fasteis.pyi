@@ -402,7 +402,7 @@ class Circuit:
         """Weighted residual vector for an arbitrary parameter vector.
 
         The same building block `fit()` uses internally, exposed so that an
-        external optimisers such as `scipy.optimize.least_squares` can be used.
+        external optimiser such as `scipy.optimize.least_squares` can be used.
 
         Args:
             params: Parameter values, in `param_names()` order.

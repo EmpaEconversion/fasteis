@@ -3,7 +3,7 @@
 Circuits are trained on synthetic data, and summarised in the table below.
 See [Training](../training.md) for how these models work and are built.
 
-- Percentages are rates of convergence starting from parameters multiplied or divided by 5 from real values vs the model intial guess.
+- Percentages are rates of convergence starting from parameters multiplied or divided by 5 from real values vs the model initial guess.
 - 'floor' is the median impedance calculation count starting from the true parameters.
 - 'excess' is extra calculations beyond 'floor', median and 90th percentile are shown.
 

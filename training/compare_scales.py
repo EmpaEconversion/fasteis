@@ -9,7 +9,7 @@ target, i.e. the rescaled circuit parameters.
 cells:  Spread of the target across different cells, i.e. different inputs to
         the circuit. A scale estimator should be robust against different scales
         and shapes of the of circuits. Compare the spread against the
-        unnormalized 'target' i.e. spread of the input parameters.
+        unnormalised 'target' i.e. spread of the input parameters.
 
 sweep:  Spread of the target for one circuit measured with different frequency
         sweeps (number of points, start point, end point).
