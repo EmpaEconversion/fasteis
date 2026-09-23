@@ -139,3 +139,4 @@ at the cost of accuracy. For randles, dropping to f16 is reasonable:
 8. Benchmark with `training/benchmark.py --circuit <name> --n 2000`
 9. Add a page for it under `docs/models/` and list it in `zensical.toml`'s nav
 10. Regenerate the tables with `training/update_docs.py`
+11. Regenerate the circuit diagrams with `training/generate_diagrams.py`

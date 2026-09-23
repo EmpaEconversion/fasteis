@@ -1,5 +1,13 @@
 # `randles`
 
+![randles circuit diagram](../assets/circuits/randles.svg#only-light)
+![randles circuit diagram](../assets/circuits/randles-dark.svg#only-dark)
+{: style="text-align:center" }
+
+![randles Nyquist plot](../assets/circuits/randles-nyquist.svg#only-light)
+![randles Nyquist plot](../assets/circuits/randles-nyquist-dark.svg#only-dark)
+{: style="text-align:center" }
+
 <!-- results:randles -->
 `R0-(R1-W1,CPE1)`, 2000 synthetic spectra. Inference costs 0.73 ms/spectrum against 1.25 ms for the fit it starts.
 

@@ -625,6 +625,8 @@ dev = [
     { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "pytest", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
     { name = "ruff" },
+    { name = "schemdraw", version = "0.20", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "schemdraw", version = "0.23", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9'" },
     { name = "scipy", version = "1.10.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
     { name = "scipy", version = "1.13.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
     { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
@@ -650,6 +652,7 @@ dev = [
     { name = "pre-commit", specifier = ">=3.5.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "ruff", specifier = ">=0.15.20" },
+    { name = "schemdraw", specifier = ">=0.19" },
     { name = "scipy", specifier = ">=1.10" },
     { name = "torch", marker = "python_full_version >= '3.10'", specifier = ">=2.13" },
     { name = "zensical", marker = "python_full_version >= '3.10'", specifier = ">=0.0.53" },
@@ -4203,6 +4206,40 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/10/9b/5f14927848d2fd4aa891fd88d883788c5a7baba561c7874732364045708c/ruff-0.15.20-py3-none-win32.whl", hash = "sha256:ed65ef510e43a137207e0f01cfcf998aeddb1aeeda5c9d35023e910284d7cf21", size = 10857322, upload-time = "2026-06-25T17:20:28.612Z" },
     { url = "https://files.pythonhosted.org/packages/fa/f0/fe47c501f9dea92a26d788ff98bb5d92ed4cb4c88792c5c88af6b697dc8e/ruff-0.15.20-py3-none-win_amd64.whl", hash = "sha256:a525c81c70fb0380344dd1d8745d8cc1c890b7fc94a58d5a07bd8eb9557b8415", size = 11993274, upload-time = "2026-06-25T17:20:31.871Z" },
     { url = "https://files.pythonhosted.org/packages/d7/2b/9555445e1201d92b3195f45cdb153a0b68f24e0a4273f6e3d5ab46e212bb/ruff-0.15.20-py3-none-win_arm64.whl", hash = "sha256:2f5b2a6d614e8700388806a14996c40fab2c47b819ef57d790a34878858ed9ca", size = 11343498, upload-time = "2026-06-25T17:20:35.03Z" },
+]
+
+[[package]]
+name = "schemdraw"
+version = "0.20"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version < '3.9'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9b/09/28b7a221b2dff0b3d9c267999ae3657366dcdf7fe5f9950943df8a01a6d9/schemdraw-0.20.tar.gz", hash = "sha256:deaf028827cd1ab1a62c5d40cb70a0ed32ac1f4243ddd6ca86c616e4ac7a3672", size = 8679376, upload-time = "2025-03-08T17:42:25.563Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/dc/a5/2916a969b80940dcaec71615bedeade23dd1871c9d57f96df582bbc7ded1/schemdraw-0.20-py3-none-any.whl", hash = "sha256:ed750908232b25037759ff183e010f63c7b40b254da2f1e540ebae3fd1c0d995", size = 151891, upload-time = "2025-03-08T17:40:21.261Z" },
+]
+
+[[package]]
+name = "schemdraw"
+version = "0.23"
+source = { registry = "https://pypi.org/simple" }
+resolution-markers = [
+    "python_full_version >= '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'win32'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform == 'emscripten'",
+    "python_full_version >= '3.12' and python_full_version < '3.14' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'win32'",
+    "python_full_version == '3.11.*' and sys_platform == 'emscripten'",
+    "python_full_version == '3.11.*' and sys_platform != 'emscripten' and sys_platform != 'win32'",
+    "python_full_version == '3.10.*'",
+    "python_full_version == '3.9.*'",
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a4/e0/5f1a5c6a7651ae0325708ead4020446ab8146bf11316f0d35bf7e26f6ee0/schemdraw-0.23.tar.gz", hash = "sha256:e71afd5ec84edfd9b707331c5bcb49ed7133af85bd17dae461de3fc260b0132f", size = 4773368, upload-time = "2026-05-29T18:10:40.713Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/f6/7efb3798e44868e09e8ce8a4329ac21acd134a3d5fd59792f97a7feccc2a/schemdraw-0.23-py3-none-any.whl", hash = "sha256:b6af33cf175fb7692ed3f71b5d2702c400e009ae26efe76c6fa4f85d34e0fac5", size = 152475, upload-time = "2026-05-29T18:10:12.268Z" },
 ]
 
 [[package]]

@@ -1,5 +1,13 @@
 # `rc`
 
+![rc circuit diagram](../assets/circuits/rc.svg#only-light)
+![rc circuit diagram](../assets/circuits/rc-dark.svg#only-dark)
+{: style="text-align:center" }
+
+![rc Nyquist plot](../assets/circuits/rc-nyquist.svg#only-light)
+![rc Nyquist plot](../assets/circuits/rc-nyquist-dark.svg#only-dark)
+{: style="text-align:center" }
+
 <!-- results:rc -->
 `R0-(R1,C1)`, 1000 synthetic spectra. Inference costs 0.24 ms/spectrum against 0.71 ms for the fit it starts.
 

@@ -1,5 +1,13 @@
 # `sei_randles`
 
+![sei_randles circuit diagram](../assets/circuits/sei_randles.svg#only-light)
+![sei_randles circuit diagram](../assets/circuits/sei_randles-dark.svg#only-dark)
+{: style="text-align:center" }
+
+![sei_randles Nyquist plot](../assets/circuits/sei_randles-nyquist.svg#only-light)
+![sei_randles Nyquist plot](../assets/circuits/sei_randles-nyquist-dark.svg#only-dark)
+{: style="text-align:center" }
+
 <!-- results:sei_randles -->
 `R0-(R1,CPE1)-(R2-W2,CPE2)`, 1000 synthetic spectra. Inference costs 2.35 ms/spectrum against 3.26 ms for the fit it starts.
 

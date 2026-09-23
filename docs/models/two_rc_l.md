@@ -1,5 +1,13 @@
 # `two_rc_l`
 
+![two_rc_l circuit diagram](../assets/circuits/two_rc_l.svg#only-light)
+![two_rc_l circuit diagram](../assets/circuits/two_rc_l-dark.svg#only-dark)
+{: style="text-align:center" }
+
+![two_rc_l Nyquist plot](../assets/circuits/two_rc_l-nyquist.svg#only-light)
+![two_rc_l Nyquist plot](../assets/circuits/two_rc_l-nyquist-dark.svg#only-dark)
+{: style="text-align:center" }
+
 <!-- results:two_rc_l -->
 `L0-R0-(R1,C1)-(R2,C2)`, 1000 synthetic spectra. Inference costs 1.52 ms/spectrum against 2.06 ms for the fit it starts.
 
