@@ -8,4 +8,4 @@ See the [Training](https://empaeconversion.github.io/fasteis/training/) and
 docs for details, and `Adding a circuit` in the Training page for the workflow
 to add a new one.
 
-Training needs torch (`uv sync --all-extras`).
+Training needs torch (`uv sync`).

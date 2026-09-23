@@ -120,7 +120,8 @@ def render_method(results: dict) -> str:
 def render_library(every: dict[str, dict]) -> str:
     """Summary table for trained circuits."""
     lines = [
-        "| name | circuit | params | params * / 5 | ml guess | floor | ml excess med | p90 |",
+        "| name | circuit | params | truth x/div 5 | ml guess | floor | ml excess med "
+        "| ml excess p90 |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for name, results in every.items():
@@ -144,9 +145,8 @@ def render_library(every: dict[str, dict]) -> str:
 def render_real_data_test(results: dict) -> str:
     """Markdown for one circuit's measured-data results."""
     lines = [
-        f"`{results['circuit']}` against {results['n_spectra']} measured spectra. "
-        f"Ground truth is not known, so 'converged' means within tolerance of the "
-        "best chi-square reached.",
+        f"Fitted to {results['n_spectra']} measured spectra. Ground truth is not known, "
+        "so 'converged' means within tolerance of the best chi-square reached.",
         "",
         "| source of initial parameters | converged | med sweeps | med ms | med chi2 |",
         "|---|---|---|---|---|",

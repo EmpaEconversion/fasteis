@@ -10,7 +10,7 @@
 ![two_rq_l Nyquist plot](../assets/circuits/two_rq_l-nyquist-dark.svg#only-dark)
 {: style="text-align:center" }
 
-As [`two_rq`](two_rq.md), with an inductor. A series inductor `L0` accounts for cable and cell inductance, which appears as a tail below the real axis at high frequency.
+As [`two_rq`](two_rq.md), plus a series inductor `L0` for cable and cell inductance, which appears as a tail below the real axis at high frequency.
 
 <!-- results:two_rq_l_model -->
 ML model: 69k parameter 1D CNN, trained on synthetic data, 0.7 ms per guess. See [Training](../training.md).
@@ -51,7 +51,7 @@ Relative error of each guessed parameter before fitting, in %.
 ## Benchmarks against real data
 
 <!-- results:two_rq_l_real -->
-`two_rq_l` against 201 measured spectra. Ground truth is not known, so 'converged' means within tolerance of the best chi-square reached.
+Fitted to 201 measured spectra. Ground truth is not known, so 'converged' means within tolerance of the best chi-square reached.
 
 | source of initial parameters | converged | med sweeps | med ms | med chi2 |
 |---|---|---|---|---|

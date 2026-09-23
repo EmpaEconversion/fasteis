@@ -10,7 +10,7 @@
 ![two_rc_l Nyquist plot](../assets/circuits/two_rc_l-nyquist-dark.svg#only-dark)
 {: style="text-align:center" }
 
-As [`two_rc`](two_rc.md), with an inductor. A series inductor `L0` accounts for cable and cell inductance, which appears as a tail below the real axis at high frequency.
+As [`two_rc`](two_rc.md), plus a series inductor `L0` for cable and cell inductance, which appears as a tail below the real axis at high frequency.
 
 <!-- results:two_rc_l_model -->
 ML model: 69k parameter 1D CNN, trained on synthetic data, 1.5 ms per guess. See [Training](../training.md).

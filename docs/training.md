@@ -1,7 +1,7 @@
 # Training
 
-Convolutional neural networks of particular circuits are trained to be used
-for initial guesses in `Circuit.fit()`, to (hopefully) converge reliably
+A small convolutional neural network is trained for each supported circuit
+to give initial guesses in `Circuit.fit()`, to (hopefully) converge reliably
 and quickly without any manual initial guess.
 
 `fasteis` comes bundled with pre-trained models. The `fasteis` PyPI package
@@ -19,16 +19,16 @@ Shifting a time constant translates features in frequency, so 1D
 convolution along the frequency axis works well (translation equivariance
 inductive bias).
 
-Convolution starts a stem from the 3 input channels to `x` 'feature' channels,
+A stem convolution maps the 3 input channels to to `x` 'feature' channels,
 followed by four residual blocks with dilations 1/2/4/8, then mean+max pooling
 over the frequency axis to get a `2x` length vector (plus 2 scaling constants).
 
-Then a 3-layer 'head' multiplies to a width `y`, then emits a mean and
+Then a 3-layer 'head' of width `y`, then outputs a mean and
 log-variance per parameter.
 
 `model.Config` sets the widths `x` and `y` and is stored in the checkpoint. The
-width is a compromise between having fast/small model vs accuracy. `rc` uses
-16 / 64, the two `sei_randles` circuits use 64 / 256, and the rest 32 / 128.
+width is trade-off between model speed and accuracy. `rc` uses 16 / 64, the two
+`sei_randles` circuits use 64 / 256, and the rest 32 / 128.
 
 | channels / head | weights | file | inference |
 |---|---|---|---|
@@ -57,10 +57,11 @@ Each parameter picks up the scales as
 physical = normalised * k**a * w_c**(b + c * params[i])
 ```
 
-with `i = -1` when the exponent has no parameter dependence. `circuits.SCALING`
-holds one `(a, b, c, i)` row per parameter and is written into the weight file,
-so the Rust reader needs no per-circuit code. Resistances are `(1, 0, 0, -1)`,
-capacitances `(-1, -1, 0, -1)`, inductances `(1, -1, 0, -1)`, time constants
+with `i = -1` when the exponent has no parameter dependence. Each
+`TrainingCircuit` has a `scaling` attribute with one `(a, b, c, i)` row per
+parameter, which is written into the weight file so the Rust reader needs no
+per-circuit code. Resistances are `(1, 0, 0, -1)`, capacitances
+`(-1, -1, 0, -1)`, inductances `(1, -1, 0, -1)`, time constants
 `(0, -1, 0, -1)`, and a CPE `q` is `(-1, 0, -1, alpha_index)`.
 
 ## Choosing k and w_c
@@ -113,8 +114,8 @@ out-of-range alpha always has a gradient pulling it back.
 
 The model is stored in `src/models/*.eisnn`, written by `serialize_weights.py`.
 
-The weights themselves are 99.8% of the bytes, changing dtype can reduce size
-at the cost of accuracy. For randles, dropping to f16 is reasonable:
+The weights themselves are 99.8% of the bytes, so changing the dtype reduces
+size at the cost of accuracy. For randles, dropping to f16 is reasonable:
 
 | dtype | file | init params error | converged | excess med | p99 |
 |---|---|---|---|---|---|
@@ -125,7 +126,7 @@ at the cost of accuracy. For randles, dropping to f16 is reasonable:
 ## Adding a circuit
 
 1. Clone the repo: `git clone https://github.com/empaeconversion/fasteis`
-2. Install the package with dev dependencies `uv sync --all-extras`
+2. Install the package with dev dependencies `uv sync`
 3. Create a `TrainingCircuit` class for the circuit in `circuits.py` and add it to the registry
 4. Check it is identifiable with `training/inspect_priors.py <name>`
 5. Train with e.g. `training/train.py --circuit <name> --steps 10000 --batch 4096 --workers 12`

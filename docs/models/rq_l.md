@@ -10,7 +10,7 @@
 ![rq_l Nyquist plot](../assets/circuits/rq_l-nyquist-dark.svg#only-dark)
 {: style="text-align:center" }
 
-As [`rq`](rq.md), with an inductor. A series inductor `L0` accounts for cable and cell inductance, which appears as a tail below the real axis at high frequency.
+As [`rq`](rq.md), plus a series inductor `L0` for cable and cell inductance, which appears as a tail below the real axis at high frequency.
 
 <!-- results:rq_l_model -->
 ML model: 69k parameter 1D CNN, trained on synthetic data, 1.6 ms per guess. See [Training](../training.md).

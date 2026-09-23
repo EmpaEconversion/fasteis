@@ -8,7 +8,7 @@ See [Training](../training.md) for how these models work and are built.
 - 'excess' is extra calculations beyond 'floor', median and 90th percentile are shown.
 
 <!-- results:library -->
-| name | circuit | params | params * / 5 | ml guess | floor | ml excess med | p90 |
+| name | circuit | params | truth x/div 5 | ml guess | floor | ml excess med | ml excess p90 |
 |---|---|---|---|---|---|---|---|
 | [`rc`](rc.md) | `R0-(R1,C1)` | 3 | 98.3% | **100.0%** | 22| **6** | 7 |
 | [`rc_l`](rc_l.md) | `L0-R0-(R1,C1)` | 4 | 94.8% | **100.0%** | 28| **0** | 9 |
