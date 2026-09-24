@@ -1,6 +1,6 @@
 # fasteis
 
-A Python library for simulating EIS with equivalent circuits.
+A Python library for simulating and fitting EIS with equivalent circuits.
 
 `fasteis` uses a few tricks to make EIS fitting faster and more reliable:
 

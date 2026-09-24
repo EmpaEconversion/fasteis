@@ -1,8 +1,8 @@
 # Copyright © 2026, Empa.
-"""Renders benchmark results into README.md.
+"""Renders benchmark results into the Zensical docs.
 
 `benchmark.py` writes one json per circuit to `training/results/`. This turns
-them into markdown and substitutes it between the markers in the README.
+them into markdown and substitutes it between the markers in `docs/models/`.
 
     <!-- results:randles -->
     ...replaced...
@@ -19,11 +19,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from training import circuits
+from training import circuits, evaluate, priors, serialize_weights
 
 FITTERS = (
-    ("plain_lm", "Plain LM:"),
-    ("circuit_fit", "`Circuit.fit()` / smart LM, which screens candidate starts:"),
+    ("plain_lm", "### Plain LM"),
+    ("circuit_fit", "### `Circuit.fit()`"),
 )
 
 
@@ -48,26 +48,31 @@ def _table(rows: list[dict]) -> list[str]:
     return out
 
 
+def render_model(results: dict, weights: Path) -> str:
+    """One line on the size and cost of a circuit's bundled model."""
+    _, tensors = serialize_weights.read(weights)
+    n_weights = sum(t.size for name, t in tensors.items() if name.startswith("w."))
+    return (
+        f"ML model: {n_weights / 1000:.0f}k parameter 1D CNN, trained on synthetic data, "
+        f"{results['inference_ms']:.1f} ms per guess. See [Training](../training.md)."
+    )
+
+
 def render(results: dict) -> str:
     """Markdown for one circuit's results."""
-    lines = [
-        "<details>",
-        "<summary>Show details</summary>",
-        "",
-        f"`{results['circuit_str']}`, {results['n_spectra']} synthetic spectra. "
-        f"Inference costs {results['inference_ms']:.2f} ms/spectrum against "
-        f"{results['floor_fit_ms']:.2f} ms for the fit it starts.",
-        "",
-    ]
+    lines = []
     for key, heading in FITTERS:
         rows = results["fitters"].get(key)
         if not rows:
             continue
-        lines += [heading, *_table(rows), ""]
+        lines += [heading, "", *_table(rows), ""]
 
     error = results["param_error_pct"]
     lines += [
-        "Relative error of the ml guess, before fitting (%):",
+        "### Error of the guess",
+        "",
+        "Relative error of each guessed parameter before fitting, in %.",
+        "",
         "| | " + " | ".join(f"`{name}`" for name in error) + " |",
         "|---" * (len(error) + 1) + "|",
     ]
@@ -75,14 +80,48 @@ def render(results: dict) -> str:
         cells = " | ".join(f"{error[name][stat]:.1f}" for name in error)
         lines.append(f"| {stat} | {cells} |")
 
-    lines += ["</details>"]
     return "\n".join(lines)
+
+
+def render_method(results: dict) -> str:
+    """Markdown describing how one circuit's benchmark was run."""
+    cfg = priors.DEFAULT
+    noise_lo, noise_hi = (100 * 10.0**x for x in cfg.log_noise)
+    tol_pct = 100 * (evaluate.CONVERGENCE_TOL - 1)
+    alpha = (
+        f", CPE exponents ±{evaluate.PERTURB_ALPHA:g}"
+        if circuits.get(results["circuit"]).linear_params
+        else ""
+    )
+    factor = f"{evaluate.PERTURB_FACTOR:g}"
+    return "\n".join(
+        [
+            f"Synthetic benchmarks use {results['n_spectra']} spectra drawn from the same "
+            "distribution as the training data, with a different seed: "
+            f"{cfg.decades[0]:g} to {cfg.decades[1]:g} decade sweeps of {cfg.n_points[0]} to "
+            f"{cfg.n_points[1]} points, with {noise_lo:.1f}% to {noise_hi:.0f}% noise.",
+            "",
+            "- **floor (truth)**: start from the true parameters.",
+            "- **library defaults**: start from the `Circuit()` placeholder values.",
+            f"- **truth x/div {factor}**: true magnitudes multiplied or divided by {factor} "
+            f"at random{alpha}.",
+            "- **ml guess**: start from `Circuit.guess()`.",
+            "",
+            "Plain LM is a single-start Levenberg-Marquardt. `Circuit.fit()` is "
+            "LM that also screens candidate starts and restarts on bad fits.",
+            "",
+            f"**Converged**: final cost within {tol_pct:g}% of the fit from the truth. "
+            "**Sweeps**: impedance evaluations of the whole spectrum, including Jacobians. "
+            "**Excess**: sweeps beyond the fit from the truth, for converged fits only.",
+        ]
+    )
 
 
 def render_library(every: dict[str, dict]) -> str:
     """Summary table for trained circuits."""
     lines = [
-        "| name | circuit | params | params * / 5 | ml guess | floor | ml excess med | p90 |",
+        "| name | circuit | params | truth x/div 5 | ml guess | floor | ml excess med "
+        "| ml excess p90 |",
         "|---|---|---|---|---|---|---|---|",
     ]
     for name, results in every.items():
@@ -93,7 +132,7 @@ def render_library(every: dict[str, dict]) -> str:
             rows["ml guess"],
         )
         lines.append(
-            f"| `{name}` | `{results['circuit_str']}` "
+            f"| [`{name}`]({name}.md) | `{results['circuit_str']}` "
             f"| {len(results['param_error_pct'])} "
             f"| {100 * defaults['converged']:.1f}% "
             f"| **{100 * ml['converged']:.1f}%** "
@@ -106,12 +145,8 @@ def render_library(every: dict[str, dict]) -> str:
 def render_real_data_test(results: dict) -> str:
     """Markdown for one circuit's measured-data results."""
     lines = [
-        "<details>",
-        "<summary>Show details</summary>",
-        "",
-        f"`{results['circuit']}` against {results['n_spectra']} measured spectra. "
-        f"Ground truth is not known, so 'converged' means within tolerance of the "
-        "best chi-square reached.",
+        f"Fitted to {results['n_spectra']} measured spectra. Ground truth is not known, "
+        "so 'converged' means within tolerance of the best chi-square reached.",
         "",
         "| source of initial parameters | converged | med sweeps | med ms | med chi2 |",
         "|---|---|---|---|---|",
@@ -128,7 +163,6 @@ def render_real_data_test(results: dict) -> str:
             cells = [f"**{c}**" for c in cells]
         lines.append("| " + " | ".join(cells) + " |")
 
-    lines += ["</details>"]
     return "\n".join(lines)
 
 
@@ -144,13 +178,13 @@ def substitute(text: str, name: str, body: str) -> tuple[str, bool]:
 
 
 def main() -> None:
-    """Render every available result file into the README."""
+    """Render every available result file into the docs."""
     p = argparse.ArgumentParser()
     p.add_argument("--results", type=Path, default=Path("training/results"))
-    p.add_argument("--readme", type=Path, default=Path("training/README.md"))
+    p.add_argument("--docs", type=Path, default=Path("docs/models"))
+    p.add_argument("--models", type=Path, default=Path("src/models"))
     args = p.parse_args()
 
-    text = args.readme.read_text(encoding="utf-8")
     every = {}
     for name in circuits.CIRCUITS:
         path = args.results / f"{name}.json"
@@ -158,21 +192,33 @@ def main() -> None:
             print(f"{name:<15} no results yet, run benchmark.py --circuit {name}")
             continue
         every[name] = json.loads(path.read_text(encoding="utf-8"))
-        text, found = substitute(text, name, render(every[name]))
-        print(f"{name:<15} updated from {path}" if found else f"{name:<15} summary row only")
+
+        page = args.docs / f"{name}.md"
+        page_text = page.read_text(encoding="utf-8")
+        page_text, found = substitute(page_text, name, render(every[name]))
+        page_text, _ = substitute(page_text, f"{name}_method", render_method(every[name]))
+        model = render_model(every[name], args.models / f"{name}.eisnn")
+        page_text, _ = substitute(page_text, f"{name}_model", model)
+        print(
+            f"{name:<15} updated from {path}"
+            if found
+            else f"{name:<15} no <!-- results:{name} --> markers in {page}"
+        )
 
         real = args.results / f"{name}_real.json"
         if real.exists():
             body = render_real_data_test(json.loads(real.read_text(encoding="utf-8")))
-            text, found = substitute(text, f"{name}_real", body)
+            page_text, found = substitute(page_text, f"{name}_real", body)
             if found:
                 print(f"{name + '_real':<15} updated from {real}")
+        page.write_text(page_text, encoding="utf-8")
 
     if every:
-        text, found = substitute(text, "library", render_library(every))
+        index = args.docs / "index.md"
+        index_text = index.read_text(encoding="utf-8")
+        index_text, found = substitute(index_text, "library", render_library(every))
         print(f"library         {'updated' if found else 'no <!-- results:library --> markers'}")
-
-    args.readme.write_text(text, encoding="utf-8")
+        index.write_text(index_text, encoding="utf-8")
 
 
 if __name__ == "__main__":

@@ -12,6 +12,22 @@ nav = [
   "installation.md",
   "create.md",
   "fit.md",
+  "training.md",
+  { "Models" = [
+      "models/index.md",
+      { "rc" = "models/rc.md" },
+      { "rc_l" = "models/rc_l.md" },
+      { "rq" = "models/rq.md" },
+      { "rq_l" = "models/rq_l.md" },
+      { "two_rc" = "models/two_rc.md" },
+      { "two_rc_l" = "models/two_rc_l.md" },
+      { "two_rq" = "models/two_rq.md" },
+      { "two_rq_l" = "models/two_rq_l.md" },
+      { "randles" = "models/randles.md" },
+      { "sei_randles" = "models/sei_randles.md" },
+      { "sei_randles_wo" = "models/sei_randles_wo.md" },
+    ]
+  },
   "api.md",
 ]
 
@@ -31,7 +47,6 @@ features = [
     "navigation.instant",
     "navigation.instant.prefetch",
     "navigation.path",
-    "navigation.sections",
     "navigation.top",
     "navigation.tracking",
     "search.highlight",
@@ -77,6 +92,7 @@ link = "https://github.com/empaeconversion/fasteis"
 [project.markdown_extensions.def_list]
 [project.markdown_extensions.footnotes]
 [project.markdown_extensions.md_in_html]
+[project.markdown_extensions.tables]
 [project.markdown_extensions.toc]
 permalink = true
 [project.markdown_extensions.pymdownx.arithmatex]

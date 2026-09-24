@@ -2,7 +2,7 @@
 """Candidate estimators for the impedance scale `k` and frequency scale `w_c`.
 
 The scales should ideally collapse circuits with different parameters onto a
-similar normalized space.
+similar normalised space.
 
 The estimators take angular frequencies and complex impedances, and return
 `(k, w_c)` as floats.

@@ -7,7 +7,7 @@ The most convenient method is to define a circuit with a string
 ```python
 from fasteis import Circuit
 
-circuit = Circuit("R1-(R2,C2)")
+circ = Circuit("R1-(R2,C2)")
 ```
 
 Here:
@@ -28,7 +28,7 @@ E.g. for a suppressed two arc circuit with finite length Warburg diffusion:
 ```python
 from fasteis import Circuit
 
-circuit = Circuit("R0-(R1,CPE1)-(R2-Wo2,CPE2)")
+circ = Circuit("R0-(R1,CPE1)-(R2-Wo2,CPE2)")
 ```
 
 ## Setting parameter values
@@ -38,14 +38,14 @@ Use `with_values(...)` and supply a list of values in order of elements and thei
 ```python
 from fasteis import Circuit
 
-circuit = Circuit("R1-(R2,C2)").with_values([10.0, 20.0, 1e-3])
+circ = Circuit("R1-(R2,C2)").with_values([10.0, 20.0, 1e-3])
 ```
 
 Or use `with_named_values(...)` and supply a dict of `"{element}.{attribute}": value`:
 
 
 ```python
-circuit = Circuit("R1-(R2,C2)").with_named_values(
+circ = Circuit("R1-(R2,C2)").with_named_values(
     {
         "R1.r": 10.0,
         "R2.r": 20.0,
@@ -64,6 +64,6 @@ The `Element` objects accept positional or named arguments, e.g. `R(10.0)` and
 ```python
 from fasteis import Series, Parallel, R, C
 
-circuit = Series([R(10.0), Parallel([R(5.0),C(1e-3)])])
+circ = Series([R(10.0), Parallel([R(5.0),C(1e-3)])])
 ```
 

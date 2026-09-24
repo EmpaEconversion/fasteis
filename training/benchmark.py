@@ -69,7 +69,7 @@ def main() -> None:
         "--results",
         type=Path,
         default=Path("training/results"),
-        help="where the json goes; update_readme.py renders it",
+        help="where the json goes; update_docs.py renders it",
     )
     args = p.parse_args()
 
