@@ -404,10 +404,9 @@ fn looks_reliable(
 /// Fit a circuit to impedance data with Levenberg-Marquardt.
 /// Starts with several candidate starting points.
 /// Fits most promising first.
+/// Each run is clamped to the bounds (`in_bounds_result`) before its cost is compared.
 /// Stops when fit converged and `looks_reliable` trusts the result.
 /// Fallback to whichever run had the lowest cost.
-/// If result has a double-bounded paramter pinned at/beyong its bound, repolish
-/// with the parameter clamped and the rest refit, keep only if fit improves.
 pub fn levenberg_marquardt_fit(
     topology: &[Node],
     frequencies: &[f64],
@@ -460,14 +459,14 @@ pub fn levenberg_marquardt_fit(
         );
         total_evaluations += evaluations;
 
-        let cost = {
-            let r = residuals(topology, &params, &omegas, z_measured, &weights, &evals);
-            0.5 * r.iter().map(|x| x * x).sum::<f64>()
-        };
+        let (params, success, cost, repolish_evals) = in_bounds_result(
+            topology, params, success, &omegas, z_measured, &weights, &bounds, options, &evals,
+        );
+        total_evaluations += repolish_evals;
 
-        let is_better = best.as_ref().is_none_or(|(_, best_success, best_cost)| {
-            (success && !*best_success) || (success == *best_success && cost < *best_cost)
-        });
+        let is_better = best
+            .as_ref()
+            .is_none_or(|(_, _, best_cost)| cost < *best_cost);
         let reliable = looks_reliable(&params, &p0, &bounds, success, cost);
         if is_better {
             best = Some((params, success, cost));
@@ -477,51 +476,8 @@ pub fn levenberg_marquardt_fit(
         }
     }
 
-    let (params, success, cost) =
+    let (final_params, final_success, _) =
         best.expect("candidate_starting_points always returns at least one candidate");
-
-    let clamped: Vec<f64> = params
-        .iter()
-        .zip(&bounds)
-        .map(|(&p, &(lo, hi))| p.clamp(lo, hi))
-        .collect();
-    let fixed: Vec<bool> = params
-        .iter()
-        .zip(&bounds)
-        .map(|(&p, &(lo, hi))| hi.is_finite() && (p <= lo || p >= hi))
-        .collect();
-
-    let (final_params, final_success) = if fixed.iter().any(|&f| f) {
-        let start_coord: Vec<f64> = clamped
-            .iter()
-            .zip(&bounds)
-            .map(|(&p, &b)| to_pso_coord(p, b))
-            .collect();
-        let (repolished, repolished_success, repolish_evals) = levenberg_marquardt_single_start(
-            topology,
-            &omegas,
-            z_measured,
-            &weights,
-            &bounds,
-            DVector::from_vec(start_coord),
-            &fixed,
-            options,
-            &evals,
-        );
-        total_evaluations += repolish_evals;
-
-        let repolished_cost = {
-            let r = residuals(topology, &repolished, &omegas, z_measured, &weights, &evals);
-            0.5 * r.iter().map(|x| x * x).sum::<f64>()
-        };
-        if repolished_success && repolished_cost < cost {
-            (repolished, true)
-        } else {
-            (clamped, success)
-        }
-    } else {
-        (params, success)
-    };
 
     Ok(build_outcome(
         topology,
@@ -533,6 +489,73 @@ pub fn levenberg_marquardt_fit(
         &weights,
         &evals,
     ))
+}
+
+/// Bring one LM endpoint inside bounds so its cost is comparable between runs.
+/// Double-bounded parameters outside their range are clamped, the rest refit with
+/// those held at the bound, and the lower-cost of clamped/repolished is returned.
+#[allow(clippy::too_many_arguments)] // threading the evaluation counter through
+fn in_bounds_result(
+    topology: &[Node],
+    params: Vec<f64>,
+    success: bool,
+    omegas: &[f64],
+    z_measured: &[Complex64],
+    weights: &[f64],
+    bounds: &[(f64, f64)],
+    options: &FitOptions,
+    evals: &Evaluations,
+) -> (Vec<f64>, bool, f64, u64) {
+    let cost_of = |p: &[f64]| {
+        let r = residuals(topology, p, omegas, z_measured, weights, evals);
+        0.5 * r.iter().map(|x| x * x).sum::<f64>()
+    };
+    let clamp = |p: &[f64]| -> Vec<f64> {
+        p.iter()
+            .zip(bounds)
+            .map(|(&v, &(lo, hi))| v.clamp(lo, hi))
+            .collect()
+    };
+
+    let clamped = clamp(&params);
+    let clamped_cost = cost_of(&clamped);
+    let fixed: Vec<bool> = params
+        .iter()
+        .zip(bounds)
+        .map(|(&p, &(lo, hi))| hi.is_finite() && (p <= lo || p >= hi))
+        .collect();
+    if !fixed.iter().any(|&f| f) {
+        return (clamped, success, clamped_cost, 0);
+    }
+
+    let start_coord: Vec<f64> = clamped
+        .iter()
+        .zip(bounds)
+        .map(|(&p, &b)| to_pso_coord(p, b))
+        .collect();
+    let (repolished, repolished_success, repolish_evals) = levenberg_marquardt_single_start(
+        topology,
+        omegas,
+        z_measured,
+        weights,
+        bounds,
+        DVector::from_vec(start_coord),
+        &fixed,
+        options,
+        evals,
+    );
+    let repolished = clamp(&repolished);
+    let repolished_cost = cost_of(&repolished);
+    if repolished_cost < clamped_cost {
+        (
+            repolished,
+            repolished_success,
+            repolished_cost,
+            repolish_evals,
+        )
+    } else {
+        (clamped, success, clamped_cost, repolish_evals)
+    }
 }
 
 /// Assemble a `FitOutcome` from a raw parameter vector: cost/chi_square/stderr
@@ -1611,6 +1634,156 @@ mod tests {
                 "param {v} not strictly inside ({lo}, {hi})"
             );
         }
+    }
+
+    #[test]
+    fn out_of_bounds_run_does_not_beat_an_in_bounds_one() {
+        // Real flow-battery spectrum and its ML guess. One start converges with
+        // CPE1.alpha < 0 at a slightly lower unclamped cost than the in-bounds optimum;
+        // clamping that alpha to 0 used to give cost ~1.4 instead of ~0.012.
+        let freqs: [f64; 33] = [
+            10001.0,
+            6830.00048828125,
+            4664.00048828125,
+            3184.999755859375,
+            2173.825439453125,
+            1484.5164794921875,
+            1013.9867553710938,
+            694.3056030273438,
+            473.05364990234375,
+            323.03155517578125,
+            220.4556884765625,
+            150.6437530517578,
+            102.86923217773438,
+            70.22637176513672,
+            47.94448471069336,
+            32.75461196899414,
+            22.351741790771484,
+            15.266704559326172,
+            10.426156044006348,
+            7.1176323890686035,
+            4.861503601074219,
+            3.320164918899536,
+            2.267770290374756,
+            1.5483237504959106,
+            1.0570510625839233,
+            0.7217749953269958,
+            0.4936009645462036,
+            0.33760443329811096,
+            0.23050233721733093,
+            0.15599653124809265,
+            0.10710209608078003,
+            0.07217749953269958,
+            0.04889443516731262,
+        ];
+        let re: [f64; 33] = [
+            0.0863666906952858,
+            0.09199195355176926,
+            0.0990152508020401,
+            0.107029490172863,
+            0.1164800375699997,
+            0.12753964960575104,
+            0.14043661952018738,
+            0.15481404960155487,
+            0.17050641775131226,
+            0.18581852316856384,
+            0.19949419796466827,
+            0.21019701659679413,
+            0.21781191229820251,
+            0.2222135215997696,
+            0.2244926244020462,
+            0.22541706264019012,
+            0.22580932080745697,
+            0.22568179666996002,
+            0.2261979579925537,
+            0.2248728722333908,
+            0.22467122972011566,
+            0.22442176938056946,
+            0.22381362318992615,
+            0.22281959652900696,
+            0.22293490171432495,
+            0.2232980877161026,
+            0.22309762239456177,
+            0.2224569469690323,
+            0.22119340300559998,
+            0.21992772817611694,
+            0.21817173063755035,
+            0.21702422201633453,
+            0.21935082972049713,
+        ];
+        let im: [f64; 33] = [
+            -0.026679527014493942,
+            -0.027410825714468956,
+            -0.03165239095687866,
+            -0.03609868511557579,
+            -0.04073849320411682,
+            -0.045259878039360046,
+            -0.04916021227836609,
+            -0.0515509657561779,
+            -0.05153527110815048,
+            -0.04865412041544914,
+            -0.043123647570610046,
+            -0.035756610333919525,
+            -0.027746370062232018,
+            -0.02056850492954254,
+            -0.014725793153047562,
+            -0.010378963313996792,
+            -0.007203212473541498,
+            -0.0050815073773264885,
+            -0.0039666397497057915,
+            -0.002706887200474739,
+            -0.002072566421702504,
+            -0.0013590704184025526,
+            -0.0015714192995801568,
+            -0.0007453903090208769,
+            -0.0003136723826173693,
+            -0.00086463603656739,
+            -0.0019562148954719305,
+            -0.003543640486896038,
+            -0.005345718469470739,
+            -0.007769303862005472,
+            -0.010690219700336456,
+            -0.014855200424790382,
+            -0.018751952797174454,
+        ];
+        let z: Vec<Complex64> = re
+            .iter()
+            .zip(&im)
+            .map(|(&a, &b)| Complex64::new(a, b))
+            .collect();
+        let guess = vec![
+            Node::Element(
+                Element::L {
+                    l: 2.784_351_670_652_513_6e-8,
+                },
+                None,
+            ),
+            r(0.066_196_651_884_292_7),
+            Node::Parallel(vec![
+                vec![r(0.085_652_012_353_663_47)],
+                vec![cpe(0.038_889_908_973_658_89, 0.625_534_025_858_915_7)],
+            ]),
+            Node::Parallel(vec![
+                vec![r(0.047_380_437_461_164_5)],
+                vec![cpe(0.166_016_896_420_181_97, 0.804_535_521_838_677_4)],
+            ]),
+        ];
+
+        let outcome = levenberg_marquardt_fit(
+            &guess,
+            &freqs,
+            &z,
+            Weighting::Modulus,
+            &FitOptions::default(),
+        )
+        .unwrap();
+
+        assert!(
+            outcome.cost < 0.012,
+            "cost={} params={:?}",
+            outcome.cost,
+            outcome.params
+        );
     }
 
     #[test]
