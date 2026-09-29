@@ -62,14 +62,13 @@ res = circ.fit(f, Z, fixed={"R0.r": 100.0})
 ```
 
 Parameters start from the machine learning guess with `R0.r` replaced by 100.
-The guess does not change when fixing parameters.
 
 You can also pass a list of parameter names for circuits with existing values:
 
 ```python
-circ = Circuit("R0-(R1,C1)").with_values({"R0.r": 10.0, "R1.r": 20.0, "C1.c": 1.0})
+circ = Circuit("R0-(R1,C1)").with_named_values({"R0.r": 10.0, "R1.r": 20.0, "C1.c": 1e-6})
 res = circ.fit(f, Z, fixed=["R0.r"])
 ```
 
-Fixed parameters appear in `res.params` with their held values, and are left
-out of `res.stderr`.
+Fixed parameters appear in `res.params` with their held values, and as NaN in
+`res.stderr`.
