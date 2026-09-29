@@ -264,7 +264,7 @@ struct LmProblem<'a> {
     coord: DVector<f64>,
     /// Parameters held at their starting coordinate for the whole run, via a
     /// zeroed Jacobian column in `jacobian()`.
-    fixed: Vec<bool>,
+    pinned: Vec<bool>,
 }
 
 impl LmProblem<'_> {
@@ -314,7 +314,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
         let m = cols.first()?.len();
         let n = cols.len();
         Some(DMatrix::from_fn(m, n, |i, j| {
-            if self.fixed[j] {
+            if self.pinned[j] {
                 return 0.0;
             }
             let (lo, hi) = self.bounds[j];
@@ -331,7 +331,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
 }
 
 /// One LM run from a specific starting coordinate vector; returns (params, success,
-/// evaluations). `fixed[j] == true` holds parameter `j` at `start_coord[j]` for the
+/// evaluations). `pinned[j] == true` holds parameter `j` at `start_coord[j]` for the
 /// whole run; pass an all-`false` mask for a normal, fully free run.
 #[allow(clippy::too_many_arguments)] // threading the evaluation counter through
 fn levenberg_marquardt_single_start(
@@ -341,7 +341,7 @@ fn levenberg_marquardt_single_start(
     weights: &[f64],
     bounds: &[(f64, f64)],
     start_coord: DVector<f64>,
-    fixed: &[bool],
+    pinned: &[bool],
     options: &FitOptions,
     evals: &Evaluations,
 ) -> (Vec<f64>, bool, u64) {
@@ -353,7 +353,7 @@ fn levenberg_marquardt_single_start(
         weights: weights.to_vec(),
         bounds: bounds.to_vec(),
         coord: start_coord,
-        fixed: fixed.to_vec(),
+        pinned: pinned.to_vec(),
     };
 
     let solver = LevenbergMarquardt::new()
@@ -520,7 +520,7 @@ pub fn levenberg_marquardt_fit(
     let mut best: Option<(Vec<f64>, bool, f64)> = None;
     let mut total_evaluations = 0u64;
 
-    let no_fixed = vec![false; p0.len()];
+    let no_pinned = vec![false; p0.len()];
     for candidate in &candidates {
         let start_coord: Vec<f64> = candidate
             .params
@@ -536,7 +536,7 @@ pub fn levenberg_marquardt_fit(
             &weights,
             &bounds,
             DVector::from_vec(start_coord),
-            &no_fixed,
+            &no_pinned,
             options,
             &evals,
         );
@@ -602,12 +602,12 @@ fn in_bounds_result(
 
     let clamped = clamp(&params);
     let clamped_cost = cost_of(&clamped);
-    let fixed: Vec<bool> = params
+    let pinned: Vec<bool> = params
         .iter()
         .zip(bounds)
         .map(|(&p, &(lo, hi))| hi.is_finite() && (p <= lo || p >= hi))
         .collect();
-    if !fixed.iter().any(|&f| f) {
+    if !pinned.iter().any(|&f| f) {
         return (clamped, success, clamped_cost, 0);
     }
 
@@ -623,7 +623,7 @@ fn in_bounds_result(
         weights,
         bounds,
         DVector::from_vec(start_coord),
-        &fixed,
+        &pinned,
         options,
         evals,
     );
@@ -2061,7 +2061,7 @@ mod tests {
                 .map(|(&p, &b)| to_pso_coord(p, b))
                 .collect(),
         );
-        let fixed = vec![false; p0.len()];
+        let pinned = vec![false; p0.len()];
 
         let evals = Evaluations::default();
         let fit_problem = Problem::new(&topology);
@@ -2073,7 +2073,7 @@ mod tests {
             weights,
             bounds,
             coord,
-            fixed,
+            pinned,
         };
 
         let ours = problem.jacobian().unwrap();
