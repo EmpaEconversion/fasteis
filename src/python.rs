@@ -247,6 +247,7 @@ enum Fixed {
 fn held_values(node: &[Node], fixed: &Fixed) -> PyResult<Vec<(usize, f64)>> {
     let names = circuit::param_names(node);
     let current = circuit::param_values(node);
+    let bounds = circuit::param_bounds(node);
     let requested: Vec<(&str, Option<f64>)> = match fixed {
         Fixed::Values(map) => map.iter().map(|(k, &v)| (k.as_str(), Some(v))).collect(),
         Fixed::Name(name) => vec![(name.as_str(), None)],
@@ -260,7 +261,6 @@ fn held_values(node: &[Node], fixed: &Fixed) -> PyResult<Vec<(usize, f64)>> {
         .collect();
     if !unknown.is_empty() {
         let units = circuit::param_units(node);
-        let bounds = circuit::param_bounds(node);
         return Err(PyValueError::new_err(circuit::describe_param_error(
             &names,
             &units,
@@ -270,13 +270,45 @@ fn held_values(node: &[Node], fixed: &Fixed) -> PyResult<Vec<(usize, f64)>> {
         )));
     }
 
-    Ok(requested
+    let held: Vec<(usize, f64)> = requested
         .into_iter()
         .map(|(k, value)| {
             let i = names.iter().position(|n| n == k).expect("checked above");
             (i, value.unwrap_or(current[i]))
         })
-        .collect())
+        .collect();
+    if let Some(message) = circuit::describe_out_of_bounds(
+        held.iter()
+            .map(|&(i, value)| (names[i].as_str(), value, bounds[i])),
+    ) {
+        return Err(PyValueError::new_err(message));
+    }
+    Ok(held)
+}
+
+/// Raise if any parameter of `node` is non-finite or outside its bounds.
+fn check_in_bounds(node: &[Node]) -> PyResult<()> {
+    let names = circuit::param_names(node);
+    let values = circuit::param_values(node);
+    let bounds = circuit::param_bounds(node);
+    match circuit::describe_out_of_bounds(
+        (0..names.len()).map(|i| (names[i].as_str(), values[i], bounds[i])),
+    ) {
+        Some(message) => Err(PyValueError::new_err(message)),
+        None => Ok(()),
+    }
+}
+
+/// Raise unless `params` has one value per parameter of `node`.
+fn check_param_count(node: &[Node], params: &[f64]) -> PyResult<()> {
+    let expected = circuit::param_count(node);
+    if params.len() != expected {
+        return Err(PyValueError::new_err(format!(
+            "expected {expected} values, got {}",
+            params.len()
+        )));
+    }
+    Ok(())
 }
 
 /// A child accepted by `Series()` and `Parallel()`: either a single element,
@@ -306,23 +338,27 @@ impl Part {
 /// Connect elements and circuits end to end.
 #[pyfunction]
 #[pyo3(name = "Series")]
-pub fn series(parts: Vec<Part>) -> Circuit {
-    Circuit {
+pub fn series(parts: Vec<Part>) -> PyResult<Circuit> {
+    let circuit = Circuit {
         values_supplied: parts.iter().all(Part::values_supplied),
         node: parts.into_iter().flat_map(Part::into_series).collect(),
-    }
+    };
+    check_in_bounds(&circuit.node)?;
+    Ok(circuit)
 }
 
 /// Connect elements and circuits as parallel branches.
 #[pyfunction]
 #[pyo3(name = "Parallel")]
-pub fn parallel(parts: Vec<Part>) -> Circuit {
-    Circuit {
+pub fn parallel(parts: Vec<Part>) -> PyResult<Circuit> {
+    let circuit = Circuit {
         values_supplied: parts.iter().all(Part::values_supplied),
         node: vec![Node::Parallel(
             parts.into_iter().map(Part::into_series).collect(),
         )],
-    }
+    };
+    check_in_bounds(&circuit.node)?;
+    Ok(circuit)
 }
 
 #[pymethods]
@@ -388,16 +424,10 @@ impl Circuit {
     /// Rebuild this circuit with a new flat parameter vector, assigned
     /// positionally in `param_names()` order.
     fn with_values(&self, values: Vec<f64>) -> PyResult<Circuit> {
-        let expected = circuit::param_count(&self.node);
-        if values.len() != expected {
-            return Err(PyValueError::new_err(format!(
-                "expected {expected} values, got {}",
-                values.len()
-            )));
-        }
-        Ok(Circuit::valued(circuit::with_param_values(
-            &self.node, &values,
-        )))
+        check_param_count(&self.node, &values)?;
+        let node = circuit::with_param_values(&self.node, &values);
+        check_in_bounds(&node)?;
+        Ok(Circuit::valued(node))
     }
 
     /// Rebuild this circuit with parameter values looked up by name (see
@@ -426,10 +456,9 @@ impl Circuit {
         }
 
         let positional: Vec<f64> = names.iter().map(|name| values[name]).collect();
-        Ok(Circuit::valued(circuit::with_param_values(
-            &self.node,
-            &positional,
-        )))
+        let node = circuit::with_param_values(&self.node, &positional);
+        check_in_bounds(&node)?;
+        Ok(Circuit::valued(node))
     }
 
     fn impedance<'py>(
@@ -484,6 +513,7 @@ impl Circuit {
         impedances: Option<&Bound<'_, PyAny>>,
         weight: &str,
     ) -> PyResult<Vec<f64>> {
+        check_param_count(&self.node, &params)?;
         let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         let weighting = parse_weighting(weight)?;
         let node = &self.node;
@@ -513,6 +543,7 @@ impl Circuit {
         impedances: Option<&Bound<'_, PyAny>>,
         weight: &str,
     ) -> PyResult<Vec<Vec<f64>>> {
+        check_param_count(&self.node, &params)?;
         let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         let weighting = parse_weighting(weight)?;
         let node = &self.node;

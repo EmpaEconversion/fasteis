@@ -356,7 +356,8 @@ class Circuit:
             values: One value per parameter, in `param_names()` order.
 
         Raises:
-            ValueError: The wrong number of values was supplied.
+            ValueError: The wrong number of values was supplied, or a value is
+                outside `param_bounds()`.
         """
 
     def with_named_values(self, values: dict[str, float]) -> Circuit:
@@ -367,7 +368,8 @@ class Circuit:
                 present, and no unknown names may be supplied.
 
         Raises:
-            ValueError: Names are missing or unrecognised.
+            ValueError: Names are missing or unrecognised, or a value is
+                outside `param_bounds()`.
         """
 
     def impedance(self, frequencies: _FloatArray | _DataFrame) -> npt.NDArray[np.complex128]:
@@ -418,6 +420,9 @@ class Circuit:
 
         Returns:
             Real and imaginary parts interleaved, `[re0, im0, re1, im1, ...]`.
+
+        Raises:
+            ValueError: `params` does not have one value per parameter.
         """
 
     def jacobian(
@@ -442,6 +447,9 @@ class Circuit:
             Shape `(2 * len(frequencies), len(params))`, where rows are
             residuals and columns are parameters, as
             `scipy.optimize.least_squares(jac=...)` expects.
+
+        Raises:
+            ValueError: `params` does not have one value per parameter.
         """
 
     def fit(
@@ -517,8 +525,9 @@ class Circuit:
             The fitted parameters, their uncertainties, and fit diagnostics.
 
         Raises:
-            ValueError: `fixed` names an unknown parameter, holds every
-                parameter, or is a list on a circuit without values.
+            ValueError: `fixed` names an unknown parameter, holds a value
+                outside `param_bounds()`, holds every parameter, or is a name
+                or list on a circuit without values.
         """
 
 # Element variants, re-exported so they can be written as `fasteis.R(100.0)`.
@@ -542,6 +551,9 @@ def Series(parts: Sequence[Element | Circuit]) -> Circuit:
 
     Args:
         parts: Elements, or circuits to nest, in order.
+
+    Raises:
+        ValueError: An element value is outside its bounds.
     """
 
 def Parallel(parts: Sequence[Element | Circuit]) -> Circuit:
@@ -549,4 +561,7 @@ def Parallel(parts: Sequence[Element | Circuit]) -> Circuit:
 
     Args:
         parts: Elements, or circuits to nest, one per branch.
+
+    Raises:
+        ValueError: An element value is outside its bounds.
     """

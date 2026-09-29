@@ -346,6 +346,26 @@ pub fn describe_param_error(
     lines.join("\n")
 }
 
+/// Error body naming each non-finite or out-of-bounds `(name, value, bounds)`,
+/// `None` when all values lie within their bounds.
+pub fn describe_out_of_bounds<'a>(
+    params: impl IntoIterator<Item = (&'a str, f64, (f64, f64))>,
+) -> Option<String> {
+    let lines: Vec<String> = params
+        .into_iter()
+        .filter(|&(_, v, (lo, hi))| !(v.is_finite() && lo <= v && v <= hi))
+        .map(|(name, v, (lo, hi))| {
+            format!(
+                "parameter {name:?} = {} is outside its bounds ({}, {})",
+                fmt_num(v),
+                fmt_num(lo),
+                fmt_num(hi)
+            )
+        })
+        .collect();
+    (!lines.is_empty()).then(|| lines.join("\n"))
+}
+
 /// Rebuild the series with a new flat parameter vector, consumed in the same
 /// traversal order `param_names()`/`param_values()` produced.
 pub fn with_param_values(series: &[Node], values: &[f64]) -> Series {
