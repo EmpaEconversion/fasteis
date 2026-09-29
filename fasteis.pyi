@@ -459,7 +459,7 @@ class Circuit:
             "simulated_annealing",
             "basin_hopping",
         ] = "levenberg_marquardt",
-        fixed: Mapping[str, float] | Sequence[str] | None = None,
+        fixed: Mapping[str, float] | str | Sequence[str] | None = None,
         max_iterations: int = 200,
         ftol: float = 1e-8,
         xtol: float = 1e-8,
@@ -492,8 +492,9 @@ class Circuit:
                 or leave it unweighted.
             method: Optimiser to run.
             fixed: Parameters to hold constant, keyed by `param_names()`. A
-                dict holds them at the given values, a list at the circuit's
-                current values. A machine-learning guess never overrides them.
+                dict holds them at the given values, a name or list of names
+                at the circuit's current values. A machine-learning guess never
+                overrides them.
             max_iterations: Iteration cap for `levenberg_marquardt`.
             ftol: Cost-change convergence tolerance for `levenberg_marquardt`.
             xtol: Parameter-change convergence tolerance for

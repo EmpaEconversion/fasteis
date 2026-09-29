@@ -235,10 +235,11 @@ fn parse_weighting(weight: &str) -> PyResult<Weighting> {
 }
 
 /// Parameters to hold during a fit: names with the values to hold them at, or
-/// just names to hold at the circuit's current values.
+/// one or more names to hold at the circuit's current values.
 #[derive(FromPyObject)]
 enum Fixed {
     Values(HashMap<String, f64>),
+    Name(String),
     Names(Vec<String>),
 }
 
@@ -248,6 +249,7 @@ fn held_values(node: &[Node], fixed: &Fixed) -> PyResult<Vec<(usize, f64)>> {
     let current = circuit::param_values(node);
     let requested: Vec<(&str, Option<f64>)> = match fixed {
         Fixed::Values(map) => map.iter().map(|(k, &v)| (k.as_str(), Some(v))).collect(),
+        Fixed::Name(name) => vec![(name.as_str(), None)],
         Fixed::Names(list) => list.iter().map(|k| (k.as_str(), None)).collect(),
     };
 
@@ -545,7 +547,8 @@ impl Circuit {
     /// `False` never guesses.
     ///
     /// `fixed` holds parameters constant: a dict holds them at the given values,
-    /// a list at the circuit's current values. A guess never overrides them.
+    /// a name or list of names at the circuit's current values. A guess never
+    /// overrides them.
     #[pyo3(signature = (
         frequencies, impedances=None, *, guess_init=None, weights=None,
         weight="modulus", method="levenberg_marquardt", fixed=None,
@@ -585,9 +588,9 @@ impl Circuit {
         let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         let weighting = parse_weighting(weight)?;
 
-        if matches!(fixed, Some(Fixed::Names(_))) && !self.values_supplied {
+        if matches!(fixed, Some(Fixed::Name(_) | Fixed::Names(_))) && !self.values_supplied {
             return Err(PyValueError::new_err(
-                "a list for `fixed` holds the circuit's current values, but this circuit \
+                "names for `fixed` hold the circuit's current values, but this circuit \
                  has only placeholders; pass a dict of values instead, e.g. \
                  fixed={\"R0.r\": 100.0}",
             ));
