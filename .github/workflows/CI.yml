@@ -244,18 +244,24 @@ jobs:
         include:
           - wheel: linux-x86_64
             runner: ubuntu-22.04
+            python_platform: linux-x86_64-gnu
           - wheel: linux-aarch64
             runner: ubuntu-22.04-arm
+            python_platform: linux-aarch64-gnu
           - wheel: windows-x64
             runner: windows-latest
+            python_platform: windows-x86_64-none
           - wheel: windows-aarch64
             runner: windows-11-arm
+            python_platform: windows-aarch64-none
           - wheel: macos-x86_64
             runner: macos-15-intel
+            python_platform: macos-x86_64-none
           - wheel: macos-aarch64
             runner: macos-latest
+            python_platform: macos-aarch64-none
     env:
-      UV_PYTHON: ${{ matrix.python }}
+      UV_PYTHON: cpython-${{ matrix.python }}-${{ matrix.python_platform }}
     defaults:
       run:
         shell: bash
