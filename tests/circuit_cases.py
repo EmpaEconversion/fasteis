@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import Callable, List, Tuple
 
 import numpy as np
 from impedance.models.circuits import elements as ipy
@@ -12,9 +12,10 @@ from numpy.typing import NDArray
 import fasteis
 
 FreqArray = NDArray[np.float64]
-ElementParams = tuple[float, ...]
-ElementCase = tuple[ElementParams, FreqArray]
-IpyResultFn = Callable[[list[float]], NDArray[np.complex128]]
+# Needs to run on Python 3.8, cannot use 3.9+ tuple list
+ElementParams = Tuple[float, ...]
+ElementCase = Tuple[ElementParams, FreqArray]
+IpyResultFn = Callable[[List[float]], NDArray[np.complex128]]
 
 FREQS: FreqArray = np.logspace(-2, 6, 50)
 
