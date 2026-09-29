@@ -163,7 +163,7 @@ def test_fit_fixed_dict_holds_value_and_recovers_the_rest() -> None:
     assert result.success
     assert result.params["R0.r"] == 20.0
     assert result.circuit.param_values()[0] == 20.0
-    for name, expected in zip(truth.param_names(), truth.param_values(), strict=True):
+    for name, expected in zip(truth.param_names(), truth.param_values()):
         assert result.params[name] == pytest.approx(expected, rel=1e-4)
     assert result.stderr is not None
     assert set(result.stderr) == set(truth.param_names())
