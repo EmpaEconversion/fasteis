@@ -640,6 +640,18 @@ docs = [
     { name = "mkdocstrings", extra = ["python"], marker = "python_full_version >= '3.10'" },
     { name = "zensical", marker = "python_full_version >= '3.10'" },
 ]
+test = [
+    { name = "impedance" },
+    { name = "pandas", version = "2.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pandas", version = "2.3.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.11'" },
+    { name = "pandas", version = "3.0.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "polars", version = "1.8.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "polars", version = "1.36.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "polars", version = "1.42.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "pytest", version = "8.3.5", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
+    { name = "pytest", version = "8.4.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.9.*'" },
+    { name = "pytest", version = "9.1.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+]
 
 [package.metadata]
 requires-dist = [{ name = "numpy", specifier = ">=1.20" }]
@@ -662,6 +674,12 @@ dev = [
 docs = [
     { name = "mkdocstrings", extras = ["python"], marker = "python_full_version >= '3.10'", specifier = ">=1.0.6" },
     { name = "zensical", marker = "python_full_version >= '3.10'", specifier = ">=0.0.53" },
+]
+test = [
+    { name = "impedance", specifier = ">=1.7.1" },
+    { name = "pandas", specifier = ">=2.0.3" },
+    { name = "polars", specifier = ">=1.8.2" },
+    { name = "pytest", specifier = ">=8.3.5" },
 ]
 
 [[package]]

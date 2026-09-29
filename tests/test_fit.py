@@ -38,7 +38,8 @@ def test_fit_recovers_single_element_params_by_name(
     fields = _field_names(name)
     expected_names = {f"{prefix}0.{field}" for field in fields}
     assert set(result.params) == expected_names
-    for field, expected in zip(fields, truth_params, strict=True):
+    assert len(fields) == len(truth_params)
+    for field, expected in zip(fields, truth_params):
         assert result.params[f"{prefix}0.{field}"] == pytest.approx(expected, rel=1e-4)
 
 

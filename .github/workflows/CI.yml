@@ -70,6 +70,7 @@ jobs:
         with:
           name: wheels-linux-${{ matrix.platform.target }}
           path: dist
+          retention-days: 1
 
   musllinux:
     runs-on: ${{ matrix.platform.runner }}
@@ -102,6 +103,7 @@ jobs:
         with:
           name: wheels-musllinux-${{ matrix.platform.target }}
           path: dist
+          retention-days: 1
 
   windows:
     runs-on: ${{ matrix.platform.runner }}
@@ -135,6 +137,7 @@ jobs:
         with:
           name: wheels-windows-${{ matrix.platform.target }}
           path: dist
+          retention-days: 1
 
   macos:
     runs-on: ${{ matrix.platform.runner }}
@@ -162,6 +165,7 @@ jobs:
         with:
           name: wheels-macos-${{ matrix.platform.target }}
           path: dist
+          retention-days: 1
 
   sdist:
     runs-on: ubuntu-latest
@@ -178,12 +182,127 @@ jobs:
         with:
           name: wheels-sdist
           path: dist
+          retention-days: 1
+
+  cargo-test:
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            python_arch: x64
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            python_arch: arm64
+          - runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            python_arch: x64
+          - runner: windows-latest
+            target: i686-pc-windows-msvc
+            python_arch: x86
+          - runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            python_arch: arm64
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            python_arch: x64
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            python_arch: arm64
+    steps:
+      - uses: actions/checkout@v6
+      # pyo3 links the test binary against this interpreter
+      - uses: actions/setup-python@v6
+        id: python
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.python_arch }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo test --target ${{ matrix.target }}
+        env:
+          PYO3_PYTHON: ${{ steps.python.outputs.python-path }}
+
+  # Installs the built wheel, so this also tests packaging
+  pytest:
+    runs-on: ${{ matrix.runner }}
+    needs: [linux, windows, macos]
+    strategy:
+      matrix:
+        wheel: [linux-x86_64, linux-aarch64, windows-x64, windows-aarch64, macos-x86_64, macos-aarch64]
+        python: ["3.8", "3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        # Test dependencies have no windows-arm64 wheels before 3.11
+        exclude:
+          - wheel: windows-aarch64
+            python: "3.8"
+          - wheel: windows-aarch64
+            python: "3.9"
+          - wheel: windows-aarch64
+            python: "3.10"
+        include:
+          - wheel: linux-x86_64
+            runner: ubuntu-22.04
+            python_platform: linux-x86_64-gnu
+          - wheel: linux-aarch64
+            runner: ubuntu-22.04-arm
+            python_platform: linux-aarch64-gnu
+          - wheel: windows-x64
+            runner: windows-latest
+            python_platform: windows-x86_64-none
+          - wheel: windows-aarch64
+            runner: windows-11-arm
+            python_platform: windows-aarch64-none
+          - wheel: macos-x86_64
+            runner: macos-15-intel
+            python_platform: macos-x86_64-none
+          - wheel: macos-aarch64
+            runner: macos-latest
+            python_platform: macos-aarch64-none
+    env:
+      UV_PYTHON: cpython-${{ matrix.python }}-${{ matrix.python_platform }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: wheels-${{ matrix.wheel }}
+          path: dist
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --locked --no-default-groups --group test --no-install-project
+      - run: uv pip install dist/*.whl
+      - run: uv run --no-sync pytest tests
+
+  # Test dependencies have no musllinux wheels before 3.10, or for aarch64
+  pytest-musllinux:
+    runs-on: ubuntu-22.04
+    needs: musllinux
+    strategy:
+      matrix:
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v7
+        with:
+          name: wheels-musllinux-x86_64
+          path: dist
+      - name: Test in Alpine
+        run: |
+          docker run --rm -v "$PWD":/io -w /io python:${{ matrix.python }}-alpine sh -ec '
+            pip install --root-user-action=ignore uv
+            uv sync --locked --no-default-groups --group test --no-install-project --python /usr/local/bin/python
+            uv pip install dist/*.whl
+            uv run --no-sync pytest tests
+          '
 
   release:
     name: Release
     runs-on: ubuntu-latest
     if: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' }}
-    needs: [check-version, linux, musllinux, windows, macos, sdist]
+    needs: [check-version, linux, musllinux, windows, macos, sdist, cargo-test, pytest, pytest-musllinux]
     permissions:
       # Use to sign the release artifacts
       id-token: write

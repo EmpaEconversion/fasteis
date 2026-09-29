@@ -18,6 +18,12 @@ def _spectrum(circuit_str: str, **params: float) -> list[complex]:
     return list(np.asarray(circuit.impedance(FREQS), dtype=np.complex128))
 
 
+def _named_guess(circuit: fasteis.Circuit, spectrum: list[complex]) -> dict[str, float]:
+    names, values = circuit.param_names(), circuit.guess(FREQS, spectrum)
+    assert len(names) == len(values)
+    return dict(zip(names, values))
+
+
 TRUTH = {"R0.r": 5.0, "R1.r": 40.0, "C1.c": 2e-5}
 Z = _spectrum("R0-(R1,C1)", **TRUTH)
 
@@ -30,10 +36,10 @@ def test_guess_is_independent_of_the_order_elements_are_written_in(
     circuit_str: str,
 ) -> None:
     circuit = fasteis.Circuit(circuit_str)
-    guess = dict(zip(circuit.param_names(), circuit.guess(FREQS, Z), strict=True))
+    guess = _named_guess(circuit, Z)
 
     reference = fasteis.Circuit("R0-(R1,C1)")
-    expected = dict(zip(reference.param_names(), reference.guess(FREQS, Z), strict=True))
+    expected = _named_guess(reference, Z)
     assert guess == pytest.approx(expected)
 
 
@@ -52,7 +58,7 @@ def test_reordered_circuit_fits_from_its_guess(circuit_str: str) -> None:
 def test_guess_reaches_labelled_and_reordered_parallel_branches() -> None:
     # W inside the branch pins the pairing, so the permutation is unambiguous
     circuit = fasteis.Circuit("(Cpe9,R9-W9)-R8")
-    values = dict(zip(circuit.param_names(), circuit.guess(FREQS, Z), strict=True))
+    values = _named_guess(circuit, Z)
 
     assert set(values) == {"Cpe9.q", "Cpe9.alpha", "R9.r", "W9.aw", "R8.r"}
     assert 0.0 < values["Cpe9.alpha"] <= 1.0
@@ -73,7 +79,7 @@ def test_arc_element_guesses_via_the_written_out_model(
     spectrum = _spectrum(circuit_str, **truth)
     circuit = fasteis.Circuit(circuit_str)
 
-    guess = dict(zip(circuit.param_names(), circuit.guess(FREQS, spectrum), strict=True))
+    guess = _named_guess(circuit, spectrum)
 
     assert set(guess) == set(truth)
     for name, expected in truth.items():
