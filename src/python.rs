@@ -234,6 +234,49 @@ fn parse_weighting(weight: &str) -> PyResult<Weighting> {
     }
 }
 
+/// Parameters to hold during a fit: names with the values to hold them at, or
+/// just names to hold at the circuit's current values.
+#[derive(FromPyObject)]
+enum Fixed {
+    Values(HashMap<String, f64>),
+    Names(Vec<String>),
+}
+
+/// Index and held value of each fixed parameter of `node`.
+fn held_values(node: &[Node], fixed: &Fixed) -> PyResult<Vec<(usize, f64)>> {
+    let names = circuit::param_names(node);
+    let current = circuit::param_values(node);
+    let requested: Vec<(&str, Option<f64>)> = match fixed {
+        Fixed::Values(map) => map.iter().map(|(k, &v)| (k.as_str(), Some(v))).collect(),
+        Fixed::Names(list) => list.iter().map(|k| (k.as_str(), None)).collect(),
+    };
+
+    let unknown: Vec<&str> = requested
+        .iter()
+        .map(|&(k, _)| k)
+        .filter(|k| !names.iter().any(|n| n == k))
+        .collect();
+    if !unknown.is_empty() {
+        let units = circuit::param_units(node);
+        let bounds = circuit::param_bounds(node);
+        return Err(PyValueError::new_err(circuit::describe_param_error(
+            &names,
+            &units,
+            &bounds,
+            &unknown,
+            &[],
+        )));
+    }
+
+    Ok(requested
+        .into_iter()
+        .map(|(k, value)| {
+            let i = names.iter().position(|n| n == k).expect("checked above");
+            (i, value.unwrap_or(current[i]))
+        })
+        .collect())
+}
+
 /// A child accepted by `Series()` and `Parallel()`: either a single element,
 /// or nested circuit.
 #[derive(FromPyObject)]
@@ -475,7 +518,7 @@ impl Circuit {
         let weights = fit::compute_weights(&impedances, weighting);
         let columns = py.allow_threads(|| {
             fit::jacobian_columns(
-                node,
+                &fit::Problem::new(node),
                 &params,
                 &omegas,
                 &impedances,
@@ -500,9 +543,12 @@ impl Circuit {
     ///
     /// `True` always guesses, and raises rather than warns when it cannot.
     /// `False` never guesses.
+    ///
+    /// `fixed` holds parameters constant: a dict holds them at the given values,
+    /// a list at the circuit's current values. A guess never overrides them.
     #[pyo3(signature = (
         frequencies, impedances=None, guess_init=None, weights=None,
-        weight="modulus", method="levenberg_marquardt",
+        weight="modulus", method="levenberg_marquardt", fixed=None,
         max_iterations=200, ftol=1e-8, xtol=1e-8,
         num_particles=200, generations=1000,
         nelder_mead_iterations=2000,
@@ -521,6 +567,7 @@ impl Circuit {
         weights: Option<&str>,
         weight: &str,
         method: &str,
+        fixed: Option<Fixed>,
         max_iterations: u32,
         ftol: f64,
         xtol: f64,
@@ -538,6 +585,18 @@ impl Circuit {
         let (frequencies, impedances) = spectrum(frequencies, impedances)?;
         let weighting = parse_weighting(weight)?;
 
+        if matches!(fixed, Some(Fixed::Names(_))) && !self.values_supplied {
+            return Err(PyValueError::new_err(
+                "a list for `fixed` holds the circuit's current values, but this circuit \
+                 has only placeholders; pass a dict of values instead, e.g. \
+                 fixed={\"R0.r\": 100.0}",
+            ));
+        }
+        let held = match &fixed {
+            Some(f) => held_values(&self.node, f)?,
+            None => Vec::new(),
+        };
+
         // unset means guess whenever there is nothing better to start from
         let wants_guess = guess_init.unwrap_or(!self.values_supplied || weights.is_some());
         let no_model = weights.is_none() && models::find_for_topology(&self.node).is_none();
@@ -551,6 +610,13 @@ impl Circuit {
             let values = guess_params(&self.node, &frequencies, &impedances, weights)?;
             circuit::with_param_values(&self.node, &values)
         };
+        let mut start = circuit::param_values(&node);
+        for &(i, value) in &held {
+            start[i] = value;
+        }
+        let fixed_indices: Vec<usize> = held.iter().map(|&(i, _)| i).collect();
+        let problem =
+            fit::Problem::with_fixed(&circuit::with_param_values(&node, &start), &fixed_indices);
 
         let outcome = py
             .allow_threads(|| match method {
@@ -562,7 +628,7 @@ impl Circuit {
                         gtol: 1e-8,
                     };
                     fit::levenberg_marquardt_fit(
-                        &node,
+                        &problem,
                         &frequencies,
                         &impedances,
                         weighting,
@@ -570,7 +636,7 @@ impl Circuit {
                     )
                 }
                 "particle_swarm" => fit::particle_swarm_fit(
-                    &node,
+                    &problem,
                     &frequencies,
                     &impedances,
                     weighting,
@@ -579,21 +645,21 @@ impl Circuit {
                     seed,
                 ),
                 "nelder_mead" => fit::nelder_mead_fit(
-                    &node,
+                    &problem,
                     &frequencies,
                     &impedances,
                     weighting,
                     nelder_mead_iterations,
                 ),
                 "differential_evolution" => fit::differential_evolution_fit(
-                    &node,
+                    &problem,
                     &frequencies,
                     &impedances,
                     weighting,
                     de_evaluations,
                 ),
                 "simulated_annealing" => fit::simulated_annealing_fit(
-                    &node,
+                    &problem,
                     &frequencies,
                     &impedances,
                     weighting,
@@ -602,7 +668,7 @@ impl Circuit {
                     seed,
                 ),
                 "basin_hopping" => fit::basin_hopping_fit(
-                    &node,
+                    &problem,
                     &frequencies,
                     &impedances,
                     weighting,
@@ -621,9 +687,14 @@ impl Circuit {
             .cloned()
             .zip(outcome.params.iter().copied())
             .collect();
-        let stderr: Option<HashMap<String, f64>> = outcome
-            .stderr
-            .map(|se| outcome.param_names.iter().cloned().zip(se).collect());
+        let stderr: Option<HashMap<String, f64>> = outcome.stderr.map(|se| {
+            outcome
+                .param_names
+                .iter()
+                .zip(se)
+                .filter_map(|(name, e)| Some((name.clone(), e?)))
+                .collect()
+        });
 
         Ok(FitResult {
             circuit: Circuit::valued(outcome.node),

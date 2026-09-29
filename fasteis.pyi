@@ -1,5 +1,5 @@
 # Copyright © 2026, Empa.
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Literal, Protocol, SupportsComplex, SupportsFloat
 
 import numpy as np
@@ -262,7 +262,7 @@ class FitResult:
     params: dict[str, float]
     """Fitted values keyed by `Circuit.param_names()`."""
     stderr: dict[str, float] | None
-    """Standard errors of parameters, or None when they cannot be estimated.
+    """Standard errors of free parameters, or None when they cannot be estimated.
 
     Taken from the diagonal of the inverted Gauss-Newton matrix, scaled by
     `chi_square` for each degree of freedom. None when the fit has no spare
@@ -455,6 +455,7 @@ class Circuit:
             "simulated_annealing",
             "basin_hopping",
         ] = "levenberg_marquardt",
+        fixed: Mapping[str, float] | Sequence[str] | None = None,
         max_iterations: int = 200,
         ftol: float = 1e-8,
         xtol: float = 1e-8,
@@ -486,6 +487,9 @@ class Circuit:
             weight: Divide each residual by the modulus of the measured point,
                 or leave it unweighted.
             method: Optimiser to run.
+            fixed: Parameters to hold constant, keyed by `param_names()`. A
+                dict holds them at the given values, a list at the circuit's
+                current values. A machine-learning guess never overrides them.
             max_iterations: Iteration cap for `levenberg_marquardt`.
             ftol: Cost-change convergence tolerance for `levenberg_marquardt`.
             xtol: Parameter-change convergence tolerance for
@@ -505,6 +509,10 @@ class Circuit:
 
         Returns:
             The fitted parameters, their uncertainties, and fit diagnostics.
+
+        Raises:
+            ValueError: `fixed` names an unknown parameter, holds every
+                parameter, or is a list on a circuit without values.
         """
 
 # Element variants, re-exported so they can be written as `fasteis.R(100.0)`.
