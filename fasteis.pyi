@@ -262,11 +262,12 @@ class FitResult:
     params: dict[str, float]
     """Fitted values keyed by `Circuit.param_names()`."""
     stderr: dict[str, float] | None
-    """Standard errors of free parameters, or None when they cannot be estimated.
+    """Standard errors of parameters, or None when they cannot be estimated.
 
     Taken from the diagonal of the inverted Gauss-Newton matrix, scaled by
     `chi_square` for each degree of freedom. None when the fit has no spare
-    degrees of freedom, or when that matrix is singular.
+    degrees of freedom, or when that matrix is singular. NaN for parameters
+    held by `fixed`.
     """
     success: bool
     """Whether the optimiser reported convergence."""

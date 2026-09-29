@@ -74,8 +74,8 @@ pub struct FitOutcome {
     pub impedance_evals: u64,
     pub cost: f64,
     pub chi_square: f64,
-    /// Aligned with `params`, `None` for parameters held fixed.
-    pub stderr: Option<Vec<Option<f64>>>,
+    /// Aligned with `params`, NaN for parameters held fixed.
+    pub stderr: Option<Vec<f64>>,
 }
 
 /// A circuit to fit, with some parameters held at their starting values.
@@ -682,9 +682,9 @@ fn build_outcome(
             let jtj = j.transpose() * &j;
             jtj.try_inverse().map(|inv| {
                 let scale = chi_square / dof;
-                let mut full = vec![None; problem.values.len()];
+                let mut full = vec![f64::NAN; problem.values.len()];
                 for (k, &i) in problem.free.iter().enumerate() {
-                    full[i] = Some((inv[(k, k)] * scale).sqrt());
+                    full[i] = (inv[(k, k)] * scale).sqrt();
                 }
                 full
             })
@@ -1715,8 +1715,8 @@ mod tests {
             );
         }
         let stderr = outcome.stderr.unwrap();
-        assert!(stderr[0].is_none());
-        assert!(stderr[1..].iter().all(Option::is_some));
+        assert!(stderr[0].is_nan());
+        assert!(stderr[1..].iter().all(|e| e.is_finite()));
     }
 
     #[test]

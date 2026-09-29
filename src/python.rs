@@ -690,14 +690,9 @@ impl Circuit {
             .cloned()
             .zip(outcome.params.iter().copied())
             .collect();
-        let stderr: Option<HashMap<String, f64>> = outcome.stderr.map(|se| {
-            outcome
-                .param_names
-                .iter()
-                .zip(se)
-                .filter_map(|(name, e)| Some((name.clone(), e?)))
-                .collect()
-        });
+        let stderr: Option<HashMap<String, f64>> = outcome
+            .stderr
+            .map(|se| outcome.param_names.iter().cloned().zip(se).collect());
 
         Ok(FitResult {
             circuit: Circuit::valued(outcome.node),

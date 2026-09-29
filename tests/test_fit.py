@@ -166,7 +166,9 @@ def test_fit_fixed_dict_holds_value_and_recovers_the_rest() -> None:
     for name, expected in zip(truth.param_names(), truth.param_values(), strict=True):
         assert result.params[name] == pytest.approx(expected, rel=1e-4)
     assert result.stderr is not None
-    assert set(result.stderr) == set(truth.param_names()) - {"R0.r"}
+    assert set(result.stderr) == set(truth.param_names())
+    assert np.isnan(result.stderr["R0.r"])
+    assert all(np.isfinite(e) for name, e in result.stderr.items() if name != "R0.r")
 
 
 def test_fit_fixed_list_holds_current_value() -> None:
