@@ -80,7 +80,7 @@ def test_modulus_residuals_match_fasteis(circuit: circuits.TrainingCircuit) -> N
     nudge[list(circuit.linear_params)] = 1.0  # keep exponents in range
     guess = spectrum.params * nudge
     expected = np.asarray(
-        built.residuals(list(guess), list(spectrum.freqs), list(spectrum.z), "modulus")
+        built.residuals(list(guess), list(spectrum.freqs), list(spectrum.z), weight="modulus")
     )
 
     got = loss.modulus_residuals(

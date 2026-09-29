@@ -314,6 +314,7 @@ class Circuit:
         self,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         weights: str | None = None,
     ) -> list[float]:
         """Machine-learning guess of starting parameters for this topology.
@@ -397,6 +398,7 @@ class Circuit:
         params: _FloatArray,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[float]:
         """Weighted residual vector for an arbitrary parameter vector.
@@ -422,6 +424,7 @@ class Circuit:
         params: _FloatArray,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[list[float]]:
         """Central-difference Jacobian of `residuals()` at `params`.
@@ -444,6 +447,7 @@ class Circuit:
         self,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         guess_init: bool | None = None,
         weights: str | None = None,
         weight: Literal["modulus", "unit"] = "modulus",

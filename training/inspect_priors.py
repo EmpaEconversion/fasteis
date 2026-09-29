@@ -39,7 +39,9 @@ def relative_stderr(
     scaling by the spectrum's sigma turns the Jacobian into real uncertainties.
     """
     j = np.asarray(
-        built.jacobian(list(spectrum.params), list(spectrum.freqs), list(spectrum.z), "modulus")
+        built.jacobian(
+            list(spectrum.params), list(spectrum.freqs), list(spectrum.z), weight="modulus"
+        )
     )
     try:
         cov = np.linalg.inv(j.T @ j) * spectrum.noise**2

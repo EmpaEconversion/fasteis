@@ -366,7 +366,7 @@ impl Circuit {
     ///
     /// Raises if no model has been trained for this topology, or if `weights`
     /// was trained for a different one.
-    #[pyo3(signature = (frequencies, impedances=None, weights=None))]
+    #[pyo3(signature = (frequencies, impedances=None, *, weights=None))]
     fn guess(
         &self,
         frequencies: &Bound<'_, PyAny>,
@@ -473,7 +473,7 @@ impl Circuit {
     /// arbitrary parameter vector -- the same building block `fit()` uses
     /// internally for Levenberg-Marquardt, exposed so an external optimizer (e.g.
     /// `scipy.optimize.least_squares`) can drive this circuit's math directly.
-    #[pyo3(signature = (params, frequencies, impedances=None, weight="modulus"))]
+    #[pyo3(signature = (params, frequencies, impedances=None, *, weight="modulus"))]
     fn residuals(
         &self,
         py: Python<'_>,
@@ -502,7 +502,7 @@ impl Circuit {
     /// Central-difference Jacobian of `residuals()` at `params`, shape `(2 *
     /// len(frequencies), len(params))` -- rows are residuals, columns are
     /// parameters, matching what `scipy.optimize.least_squares(jac=...)` expects.
-    #[pyo3(signature = (params, frequencies, impedances=None, weight="modulus"))]
+    #[pyo3(signature = (params, frequencies, impedances=None, *, weight="modulus"))]
     fn jacobian(
         &self,
         py: Python<'_>,
@@ -547,7 +547,7 @@ impl Circuit {
     /// `fixed` holds parameters constant: a dict holds them at the given values,
     /// a list at the circuit's current values. A guess never overrides them.
     #[pyo3(signature = (
-        frequencies, impedances=None, guess_init=None, weights=None,
+        frequencies, impedances=None, *, guess_init=None, weights=None,
         weight="modulus", method="levenberg_marquardt", fixed=None,
         max_iterations=200, ftol=1e-8, xtol=1e-8,
         num_particles=200, generations=1000,
