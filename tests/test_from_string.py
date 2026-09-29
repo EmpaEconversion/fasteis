@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -101,6 +103,27 @@ def test_with_values_rejects_wrong_length() -> None:
     circuit = fasteis.Circuit("R0-C1")
     with pytest.raises(ValueError):
         circuit.with_values([1.0])
+
+
+@pytest.mark.parametrize("values", [[-1.0, 1e-6], [1.0, float("nan")], [1.0, float("inf")]])
+def test_with_values_rejects_out_of_bounds(values: list[float]) -> None:
+    circuit = fasteis.Circuit("R0-C1")
+    with pytest.raises(ValueError, match="outside its bounds"):
+        circuit.with_values(values)
+
+
+def test_with_named_values_rejects_out_of_bounds() -> None:
+    circuit = fasteis.Circuit("R0-p(R1,Cpe1)")
+    with pytest.raises(ValueError, match='"Cpe1.alpha" = 1.5 is outside its bounds'):
+        circuit.with_named_values({"R0.r": 1.0, "R1.r": 2.0, "Cpe1.q": 3e-4, "Cpe1.alpha": 1.5})
+
+
+@pytest.mark.parametrize("combine", [fasteis.Series, fasteis.Parallel])
+def test_combining_rejects_out_of_bounds_element(
+    combine: Callable[[list[fasteis.Element]], fasteis.Circuit],
+) -> None:
+    with pytest.raises(ValueError, match='"R0.r" = -5 is outside its bounds'):
+        combine([fasteis.R(-5.0), fasteis.C(1e-6)])
 
 
 def test_with_named_values_sets_params_by_label() -> None:

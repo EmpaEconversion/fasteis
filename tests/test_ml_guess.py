@@ -172,3 +172,8 @@ def test_untrained_circuit_explicit_guess_raises() -> None:
     """Giving an untrained circuit `guess_init=True` raises."""
     with pytest.raises(ValueError, match="No training data on this circuit"):
         fasteis.Circuit(UNTRAINED).fit(FREQS, Z, guess_init=True)
+
+
+def test_guess_weights_is_keyword_only() -> None:
+    with pytest.raises(TypeError):
+        fasteis.Circuit("randles").guess(FREQS, Z, "model.eisnn")
