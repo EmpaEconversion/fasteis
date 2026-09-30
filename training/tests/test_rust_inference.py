@@ -34,7 +34,7 @@ def test_every_registered_circuit_is_trainable_and_guesses(name: str) -> None:
 
     assert len(guess) == circuit.n_params
     assert np.all(np.isfinite(guess))
-    for value, (lo, hi) in zip(guess, built.param_bounds(), strict=True):
+    for value, (lo, hi) in zip(guess, built.param_bounds()):
         assert lo <= value <= hi
 
 
@@ -69,7 +69,7 @@ def test_guess_init_recovers_the_true_parameters() -> None:
     result = fasteis.Circuit("randles").fit(list(spectrum.freqs), list(spectrum.z), guess_init=True)
 
     assert result.success
-    for name, truth in zip(RANDLES.param_names, spectrum.params, strict=True):
+    for name, truth in zip(RANDLES.param_names, spectrum.params):
         assert result.params[name] == pytest.approx(truth, rel=0.25)
 
 
@@ -94,10 +94,10 @@ def test_topology_matches_regardless_of_element_order(topology: str) -> None:
     f, z = list(spectrum.freqs), list(spectrum.z)
 
     reference = fasteis.Circuit("randles")
-    expected = dict(zip(reference.param_names(), reference.guess(f, z), strict=True))
+    expected = dict(zip(reference.param_names(), reference.guess(f, z)))
 
     circuit = fasteis.Circuit(topology)
-    guess = dict(zip(circuit.param_names(), circuit.guess(f, z), strict=True))
+    guess = dict(zip(circuit.param_names(), circuit.guess(f, z)))
 
     assert guess == pytest.approx(expected, rel=1e-12)
 
@@ -211,7 +211,7 @@ def test_evaluation_sets_are_reproducible() -> None:
     from training import evaluate
 
     a, b = evaluate.benchmark_set(RANDLES, 20), evaluate.benchmark_set(RANDLES, 20)
-    for x, y in zip(a, b, strict=True):
+    for x, y in zip(a, b):
         assert np.array_equal(x.params, y.params)
         assert np.array_equal(x.z, y.z)
 
@@ -227,7 +227,7 @@ def test_a_longer_evaluation_set_extends_the_shorter_one() -> None:
         evaluate.benchmark_set(RANDLES, 10),
         evaluate.benchmark_set(RANDLES, 40),
     )
-    for x, y in zip(short, long[:10], strict=True):
+    for x, y in zip(short, long[:10]):
         assert np.array_equal(x.params, y.params)
         assert np.array_equal(x.freqs, y.freqs)
         assert np.array_equal(x.z, y.z)

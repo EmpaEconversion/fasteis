@@ -1,5 +1,5 @@
 # Copyright © 2026, Empa.
-from collections.abc import Iterator, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from typing import Literal, Protocol, SupportsComplex, SupportsFloat
 
 import numpy as np
@@ -266,7 +266,8 @@ class FitResult:
 
     Taken from the diagonal of the inverted Gauss-Newton matrix, scaled by
     `chi_square` for each degree of freedom. None when the fit has no spare
-    degrees of freedom, or when that matrix is singular.
+    degrees of freedom, or when that matrix is singular. NaN for parameters
+    held by `fixed`.
     """
     success: bool
     """Whether the optimiser reported convergence."""
@@ -314,6 +315,7 @@ class Circuit:
         self,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         weights: str | None = None,
     ) -> list[float]:
         """Machine-learning guess of starting parameters for this topology.
@@ -354,7 +356,8 @@ class Circuit:
             values: One value per parameter, in `param_names()` order.
 
         Raises:
-            ValueError: The wrong number of values was supplied.
+            ValueError: The wrong number of values was supplied, or a value is
+                outside `param_bounds()`.
         """
 
     def with_named_values(self, values: dict[str, float]) -> Circuit:
@@ -365,7 +368,8 @@ class Circuit:
                 present, and no unknown names may be supplied.
 
         Raises:
-            ValueError: Names are missing or unrecognised.
+            ValueError: Names are missing or unrecognised, or a value is
+                outside `param_bounds()`.
         """
 
     def impedance(self, frequencies: _FloatArray | _DataFrame) -> npt.NDArray[np.complex128]:
@@ -397,6 +401,7 @@ class Circuit:
         params: _FloatArray,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[float]:
         """Weighted residual vector for an arbitrary parameter vector.
@@ -415,6 +420,9 @@ class Circuit:
 
         Returns:
             Real and imaginary parts interleaved, `[re0, im0, re1, im1, ...]`.
+
+        Raises:
+            ValueError: `params` does not have one value per parameter.
         """
 
     def jacobian(
@@ -422,6 +430,7 @@ class Circuit:
         params: _FloatArray,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         weight: Literal["modulus", "unit"] = "modulus",
     ) -> list[list[float]]:
         """Central-difference Jacobian of `residuals()` at `params`.
@@ -438,12 +447,16 @@ class Circuit:
             Shape `(2 * len(frequencies), len(params))`, where rows are
             residuals and columns are parameters, as
             `scipy.optimize.least_squares(jac=...)` expects.
+
+        Raises:
+            ValueError: `params` does not have one value per parameter.
         """
 
     def fit(
         self,
         frequencies: _FloatArray | _DataFrame,
         impedances: _ComplexArray | None = None,
+        *,
         guess_init: bool | None = None,
         weights: str | None = None,
         weight: Literal["modulus", "unit"] = "modulus",
@@ -455,6 +468,7 @@ class Circuit:
             "simulated_annealing",
             "basin_hopping",
         ] = "levenberg_marquardt",
+        fixed: Mapping[str, float] | str | Sequence[str] | None = None,
         max_iterations: int = 200,
         ftol: float = 1e-8,
         xtol: float = 1e-8,
@@ -486,6 +500,10 @@ class Circuit:
             weight: Divide each residual by the modulus of the measured point,
                 or leave it unweighted.
             method: Optimiser to run.
+            fixed: Parameters to hold constant, keyed by `param_names()`. A
+                dict holds them at the given values, a name or list of names
+                at the circuit's current values. A machine-learning guess never
+                overrides them.
             max_iterations: Iteration cap for `levenberg_marquardt`.
             ftol: Cost-change convergence tolerance for `levenberg_marquardt`.
             xtol: Parameter-change convergence tolerance for
@@ -505,6 +523,11 @@ class Circuit:
 
         Returns:
             The fitted parameters, their uncertainties, and fit diagnostics.
+
+        Raises:
+            ValueError: `fixed` names an unknown parameter, holds a value
+                outside `param_bounds()`, holds every parameter, or is a name
+                or list on a circuit without values.
         """
 
 # Element variants, re-exported so they can be written as `fasteis.R(100.0)`.
@@ -528,6 +551,9 @@ def Series(parts: Sequence[Element | Circuit]) -> Circuit:
 
     Args:
         parts: Elements, or circuits to nest, in order.
+
+    Raises:
+        ValueError: An element value is outside its bounds.
     """
 
 def Parallel(parts: Sequence[Element | Circuit]) -> Circuit:
@@ -535,4 +561,7 @@ def Parallel(parts: Sequence[Element | Circuit]) -> Circuit:
 
     Args:
         parts: Elements, or circuits to nest, one per branch.
+
+    Raises:
+        ValueError: An element value is outside its bounds.
     """

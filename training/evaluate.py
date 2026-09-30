@@ -97,11 +97,11 @@ def fit_plain_lm(
 
     def residuals(free: NDArray[np.float64]) -> NDArray[np.float64]:
         p = [float(v) for v in _to_params(circuit, free)]
-        return np.asarray(built.residuals(p, freqs, z, "modulus"))
+        return np.asarray(built.residuals(p, freqs, z, weight="modulus"))
 
     def jacobian(free: NDArray[np.float64]) -> NDArray[np.float64]:
         params = _to_params(circuit, free)
-        j = np.asarray(built.jacobian([float(v) for v in params], freqs, z, "modulus"))
+        j = np.asarray(built.jacobian([float(v) for v in params], freqs, z, weight="modulus"))
         # chain rule for the log-coordinate parameters
         scale = np.ones(circuit.n_params)
         scale[list(circuit.log_params)] = params[list(circuit.log_params)]

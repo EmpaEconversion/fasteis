@@ -55,7 +55,7 @@ ELEMENT_CASES: dict[str, list[ElementCase]] = {
     "La": [
         ((1e-3, 0.9), FREQS),
         ((1.0, 0.5), FREQS),
-        ((1e-6, 1.2), FREQS),
+        ((1e-6, 0.1), FREQS),
     ],
     "CPE": [
         ((1e-5, 0.8), FREQS),

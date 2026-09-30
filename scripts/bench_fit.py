@@ -87,10 +87,10 @@ def _rust_trf_fit(
     x0 = np.clip(np.array(circuit.param_values()), lo, hi)
 
     def fun(p: np.ndarray) -> np.ndarray:
-        return np.asarray(circuit.residuals(p.tolist(), freqs_list, z_list, "modulus"))
+        return np.asarray(circuit.residuals(p.tolist(), freqs_list, z_list, weight="modulus"))
 
     def jac(p: np.ndarray) -> np.ndarray:
-        return np.asarray(circuit.jacobian(p.tolist(), freqs_list, z_list, "modulus"))
+        return np.asarray(circuit.jacobian(p.tolist(), freqs_list, z_list, weight="modulus"))
 
     result = least_squares(fun, x0, jac=jac, bounds=(lo, hi), method="trf")
     return result.x

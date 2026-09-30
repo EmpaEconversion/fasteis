@@ -150,3 +150,117 @@ def test_fit_rejects_unknown_weight() -> None:
     z = _synthetic(circuit)
     with pytest.raises(ValueError):
         circuit.fit(FREQS, list(z), weight="bogus")
+
+
+def test_fit_fixed_dict_holds_value_and_recovers_the_rest() -> None:
+    """A dict holds its parameter at the given value, the rest are fitted."""
+    truth = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    guess = _make_randles(25.0, 120.0, 1.5e-5, 70.0)
+    z = _synthetic(truth)
+
+    result = guess.fit(FREQS, list(z), fixed={"R0.r": 20.0})
+
+    assert result.success
+    assert result.params["R0.r"] == 20.0
+    assert result.circuit.param_values()[0] == 20.0
+    for name, expected in zip(truth.param_names(), truth.param_values()):
+        assert result.params[name] == pytest.approx(expected, rel=1e-4)
+    assert result.stderr is not None
+    assert set(result.stderr) == set(truth.param_names())
+    assert np.isnan(result.stderr["R0.r"])
+    assert all(np.isfinite(e) for name, e in result.stderr.items() if name != "R0.r")
+
+
+@pytest.mark.parametrize("fixed", [["R0.r"], "R0.r"])
+def test_fit_fixed_names_hold_current_value(fixed: list[str] | str) -> None:
+    """A name or list of names holds the circuit's value, the rest lower the cost."""
+    truth = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    guess = _make_randles(30.0, 120.0, 1.5e-5, 70.0)
+    z = _synthetic(truth)
+    start = np.asarray(guess.residuals(guess.param_values(), FREQS, list(z)))
+
+    result = guess.fit(FREQS, list(z), fixed=fixed)
+
+    assert result.params["R0.r"] == 30.0
+    assert result.cost < 0.5 * np.sum(start**2)
+
+
+def test_fit_fixed_overrides_ml_guess() -> None:
+    """The guess starts the free parameters, the fixed value is kept."""
+    truth = fasteis.Circuit("sei_randles").with_named_values(
+        {
+            "R0.r": 100.0,
+            "R1.r": 50.0,
+            "CPE1.q": 1e-5,
+            "CPE1.alpha": 0.9,
+            "R2.r": 200.0,
+            "W2.aw": 30.0,
+            "CPE2.q": 1e-3,
+            "CPE2.alpha": 0.8,
+        }
+    )
+    z = _synthetic(truth)
+
+    result = fasteis.Circuit("sei_randles").fit(FREQS, list(z), fixed={"R0.r": 100.0})
+
+    assert result.params["R0.r"] == 100.0
+    got = np.asarray(result.circuit.impedance(FREQS), dtype=np.complex128)
+    np.testing.assert_allclose(got, z, rtol=1e-3)
+
+
+def test_fit_fixed_list_rejects_circuit_without_values() -> None:
+    """A list would hold a placeholder, so it needs a circuit with values."""
+    circuit = fasteis.Circuit("R0-(R1,C1)")
+    z = _synthetic(
+        fasteis.Series([fasteis.R(10.0), fasteis.Parallel([fasteis.R(5.0), fasteis.C(1e-3)])])
+    )
+    with pytest.raises(ValueError, match="dict"):
+        circuit.fit(FREQS, list(z), fixed=["R0.r"])
+
+
+def test_fit_fixed_rejects_unknown_name() -> None:
+    """Unknown names get a suggestion."""
+    circuit = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    z = _synthetic(circuit)
+    with pytest.raises(ValueError, match='did you mean "R0.r"'):
+        circuit.fit(FREQS, list(z), fixed={"R0.R": 20.0})
+
+
+@pytest.mark.parametrize("value", [-1.0, 0.0, float("nan"), float("inf")])
+def test_fit_fixed_rejects_out_of_bounds_value(value: float) -> None:
+    circuit = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    z = _synthetic(circuit)
+    with pytest.raises(ValueError, match='"R0.r" = .* is outside its bounds'):
+        circuit.fit(FREQS, list(z), fixed={"R0.r": value})
+
+
+def test_fit_options_are_keyword_only() -> None:
+    circuit = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    z = _synthetic(circuit)
+    with pytest.raises(TypeError):
+        circuit.fit(FREQS, list(z), False)  # type: ignore[misc]
+
+
+def test_fit_fixed_rejects_every_parameter_fixed() -> None:
+    """Nothing left to fit."""
+    circuit = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    z = _synthetic(circuit)
+    with pytest.raises(ValueError, match="no free parameters"):
+        circuit.fit(FREQS, list(z), fixed=circuit.param_names())
+
+
+@pytest.mark.parametrize("method", ["residuals", "jacobian"])
+@pytest.mark.parametrize("n_params", [3, 5])
+def test_residuals_and_jacobian_reject_wrong_param_count(method: str, n_params: int) -> None:
+    circuit = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    z = _synthetic(circuit)
+    with pytest.raises(ValueError, match=f"expected 4 values, got {n_params}"):
+        getattr(circuit, method)([1.0] * n_params, FREQS, list(z))
+
+
+@pytest.mark.parametrize("method", ["residuals", "jacobian"])
+def test_residuals_and_jacobian_weight_is_keyword_only(method: str) -> None:
+    circuit = _make_randles(20.0, 150.0, 20e-6, 60.0)
+    z = _synthetic(circuit)
+    with pytest.raises(TypeError):
+        getattr(circuit, method)(circuit.param_values(), FREQS, list(z), "modulus")

@@ -74,7 +74,91 @@ pub struct FitOutcome {
     pub impedance_evals: u64,
     pub cost: f64,
     pub chi_square: f64,
+    /// Aligned with `params`, NaN for parameters held fixed.
     pub stderr: Option<Vec<f64>>,
+}
+
+/// A circuit to fit, with some parameters held at their starting values.
+/// Solvers only see the free parameters; `expand` fills the fixed ones back in.
+#[derive(Debug, Clone)]
+pub struct Problem {
+    topology: Series,
+    values: Vec<f64>,
+    free: Vec<usize>,
+}
+
+impl Problem {
+    /// Every parameter free, starting from the circuit's current values.
+    pub fn new(topology: &[Node]) -> Self {
+        Self::with_fixed(topology, &[])
+    }
+
+    /// Hold the parameters at `fixed` (indices into `param_names()`) at their
+    /// current values.
+    pub fn with_fixed(topology: &[Node], fixed: &[usize]) -> Self {
+        let values = circuit::param_values(topology);
+        let free = (0..values.len()).filter(|i| !fixed.contains(i)).collect();
+        Problem {
+            topology: topology.to_vec(),
+            values,
+            free,
+        }
+    }
+
+    fn n_free(&self) -> usize {
+        self.free.len()
+    }
+
+    /// Starting values of the free parameters.
+    fn start(&self) -> Vec<f64> {
+        self.restrict(&self.values)
+    }
+
+    fn bounds(&self) -> Vec<(f64, f64)> {
+        let all = circuit::param_bounds(&self.topology);
+        self.free.iter().map(|&i| all[i]).collect()
+    }
+
+    /// Full parameter vector from free values.
+    fn expand(&self, free: &[f64]) -> Vec<f64> {
+        let mut full = self.values.clone();
+        for (&i, &v) in self.free.iter().zip(free) {
+            full[i] = v;
+        }
+        full
+    }
+
+    /// Free values picked out of a full parameter vector.
+    fn restrict(&self, full: &[f64]) -> Vec<f64> {
+        self.free.iter().map(|&i| full[i]).collect()
+    }
+
+    /// The same problem, starting from other free values.
+    fn starting_at(&self, free: &[f64]) -> Problem {
+        Problem {
+            topology: self.topology.clone(),
+            values: self.expand(free),
+            free: self.free.clone(),
+        }
+    }
+
+    fn residuals(
+        &self,
+        free: &[f64],
+        omegas: &[f64],
+        z_measured: &[Complex64],
+        weights: &[f64],
+        evals: &Evaluations,
+    ) -> Vec<f64> {
+        residuals(
+            &self.topology,
+            &self.expand(free),
+            omegas,
+            z_measured,
+            weights,
+            evals,
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -93,7 +177,7 @@ impl std::fmt::Display for FitError {
                 f.write_str("frequencies and impedances must have the same length")
             }
             FitError::EmptyData => f.write_str("frequencies and impedances must not be empty"),
-            FitError::NoFreeParameters => f.write_str("circuit topology has no parameters to fit"),
+            FitError::NoFreeParameters => f.write_str("circuit has no free parameters to fit"),
             FitError::SolverError(msg) => write!(f, "solver error: {msg}"),
             FitError::UnknownMethod(m) => {
                 write!(
@@ -138,8 +222,9 @@ pub(crate) fn residuals(
 /// Central-difference Jacobian columns.
 /// Perturbations are not clamped to physical bounds: impedance() is smooth well outside
 /// those ranges, so clamping here would bias the derivative estimate near a boundary.
+/// One column per free parameter of `problem`, with `p` holding the free values.
 pub(crate) fn jacobian_columns(
-    topology: &[Node],
+    problem: &Problem,
     p: &[f64],
     omegas: &[f64],
     z_measured: &[Complex64],
@@ -154,8 +239,8 @@ pub(crate) fn jacobian_columns(
             p_plus[j] += h;
             let mut p_minus = p.to_vec();
             p_minus[j] -= h;
-            let r_plus = residuals(topology, &p_plus, omegas, z_measured, weights, evals);
-            let r_minus = residuals(topology, &p_minus, omegas, z_measured, weights, evals);
+            let r_plus = problem.residuals(&p_plus, omegas, z_measured, weights, evals);
+            let r_minus = problem.residuals(&p_minus, omegas, z_measured, weights, evals);
             r_plus
                 .iter()
                 .zip(&r_minus)
@@ -171,7 +256,7 @@ pub(crate) fn jacobian_columns(
 /// physical space for double-bounded ones (alpha/gamma).
 struct LmProblem<'a> {
     evals: &'a Evaluations,
-    topology: &'a [Node],
+    problem: &'a Problem,
     omegas: Vec<f64>,
     z_measured: &'a [Complex64],
     weights: Vec<f64>,
@@ -179,7 +264,7 @@ struct LmProblem<'a> {
     coord: DVector<f64>,
     /// Parameters held at their starting coordinate for the whole run, via a
     /// zeroed Jacobian column in `jacobian()`.
-    fixed: Vec<bool>,
+    pinned: Vec<bool>,
 }
 
 impl LmProblem<'_> {
@@ -207,8 +292,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
 
     fn residuals(&self) -> Option<DVector<f64>> {
         let p = self.physical();
-        Some(DVector::from_vec(residuals(
-            self.topology,
+        Some(DVector::from_vec(self.problem.residuals(
             &p,
             &self.omegas,
             self.z_measured,
@@ -220,7 +304,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
     fn jacobian(&self) -> Option<DMatrix<f64>> {
         let p = self.physical();
         let cols = jacobian_columns(
-            self.topology,
+            self.problem,
             &p,
             &self.omegas,
             self.z_measured,
@@ -230,7 +314,7 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
         let m = cols.first()?.len();
         let n = cols.len();
         Some(DMatrix::from_fn(m, n, |i, j| {
-            if self.fixed[j] {
+            if self.pinned[j] {
                 return 0.0;
             }
             let (lo, hi) = self.bounds[j];
@@ -247,29 +331,29 @@ impl LeastSquaresProblem<f64, Dyn, Dyn> for LmProblem<'_> {
 }
 
 /// One LM run from a specific starting coordinate vector; returns (params, success,
-/// evaluations). `fixed[j] == true` holds parameter `j` at `start_coord[j]` for the
+/// evaluations). `pinned[j] == true` holds parameter `j` at `start_coord[j]` for the
 /// whole run; pass an all-`false` mask for a normal, fully free run.
 #[allow(clippy::too_many_arguments)] // threading the evaluation counter through
 fn levenberg_marquardt_single_start(
-    topology: &[Node],
+    problem: &Problem,
     omegas: &[f64],
     z_measured: &[Complex64],
     weights: &[f64],
     bounds: &[(f64, f64)],
     start_coord: DVector<f64>,
-    fixed: &[bool],
+    pinned: &[bool],
     options: &FitOptions,
     evals: &Evaluations,
 ) -> (Vec<f64>, bool, u64) {
     let problem = LmProblem {
         evals,
-        topology,
+        problem,
         omegas: omegas.to_vec(),
         z_measured,
         weights: weights.to_vec(),
         bounds: bounds.to_vec(),
         coord: start_coord,
-        fixed: fixed.to_vec(),
+        pinned: pinned.to_vec(),
     };
 
     let solver = LevenbergMarquardt::new()
@@ -310,7 +394,7 @@ struct Candidate {
 /// double-bounded parameters (`ALPHA_GAMMA_PROBES`) independently, each holding
 /// the other group at the caller's guess.
 fn candidate_starting_points(
-    topology: &[Node],
+    problem: &Problem,
     p0: &[f64],
     bounds: &[(f64, f64)],
     omegas: &[f64],
@@ -319,7 +403,7 @@ fn candidate_starting_points(
     evals: &Evaluations,
 ) -> Vec<Candidate> {
     let screen = |params: Vec<f64>| {
-        let r = residuals(topology, &params, omegas, z_measured, weights, evals);
+        let r = problem.residuals(&params, omegas, z_measured, weights, evals);
         let cost = 0.5 * r.iter().map(|x| x * x).sum::<f64>();
         Candidate {
             params,
@@ -408,7 +492,7 @@ fn looks_reliable(
 /// Stops when fit converged and `looks_reliable` trusts the result.
 /// Fallback to whichever run had the lowest cost.
 pub fn levenberg_marquardt_fit(
-    topology: &[Node],
+    problem: &Problem,
     frequencies: &[f64],
     z_measured: &[Complex64],
     weighting: Weighting,
@@ -420,24 +504,23 @@ pub fn levenberg_marquardt_fit(
     if frequencies.is_empty() {
         return Err(FitError::EmptyData);
     }
-    if circuit::param_count(topology) == 0 {
+    if problem.n_free() == 0 {
         return Err(FitError::NoFreeParameters);
     }
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
     let evals = Evaluations::default();
-    let bounds = circuit::param_bounds(topology);
-    let p0 = circuit::param_values(topology);
+    let bounds = problem.bounds();
+    let p0 = problem.start();
 
-    let candidates = candidate_starting_points(
-        topology, &p0, &bounds, &omegas, z_measured, &weights, &evals,
-    );
+    let candidates =
+        candidate_starting_points(problem, &p0, &bounds, &omegas, z_measured, &weights, &evals);
 
     let mut best: Option<(Vec<f64>, bool, f64)> = None;
     let mut total_evaluations = 0u64;
 
-    let no_fixed = vec![false; p0.len()];
+    let no_pinned = vec![false; p0.len()];
     for candidate in &candidates {
         let start_coord: Vec<f64> = candidate
             .params
@@ -447,20 +530,20 @@ pub fn levenberg_marquardt_fit(
             .collect();
 
         let (params, success, evaluations) = levenberg_marquardt_single_start(
-            topology,
+            problem,
             &omegas,
             z_measured,
             &weights,
             &bounds,
             DVector::from_vec(start_coord),
-            &no_fixed,
+            &no_pinned,
             options,
             &evals,
         );
         total_evaluations += evaluations;
 
         let (params, success, cost, repolish_evals) = in_bounds_result(
-            topology, params, success, &omegas, z_measured, &weights, &bounds, options, &evals,
+            problem, params, success, &omegas, z_measured, &weights, &bounds, options, &evals,
         );
         total_evaluations += repolish_evals;
 
@@ -480,7 +563,7 @@ pub fn levenberg_marquardt_fit(
         best.expect("candidate_starting_points always returns at least one candidate");
 
     Ok(build_outcome(
-        topology,
+        problem,
         final_params,
         final_success,
         total_evaluations,
@@ -496,7 +579,7 @@ pub fn levenberg_marquardt_fit(
 /// those held at the bound, and the lower-cost of clamped/repolished is returned.
 #[allow(clippy::too_many_arguments)] // threading the evaluation counter through
 fn in_bounds_result(
-    topology: &[Node],
+    problem: &Problem,
     params: Vec<f64>,
     success: bool,
     omegas: &[f64],
@@ -507,7 +590,7 @@ fn in_bounds_result(
     evals: &Evaluations,
 ) -> (Vec<f64>, bool, f64, u64) {
     let cost_of = |p: &[f64]| {
-        let r = residuals(topology, p, omegas, z_measured, weights, evals);
+        let r = problem.residuals(p, omegas, z_measured, weights, evals);
         0.5 * r.iter().map(|x| x * x).sum::<f64>()
     };
     let clamp = |p: &[f64]| -> Vec<f64> {
@@ -519,12 +602,12 @@ fn in_bounds_result(
 
     let clamped = clamp(&params);
     let clamped_cost = cost_of(&clamped);
-    let fixed: Vec<bool> = params
+    let pinned: Vec<bool> = params
         .iter()
         .zip(bounds)
         .map(|(&p, &(lo, hi))| hi.is_finite() && (p <= lo || p >= hi))
         .collect();
-    if !fixed.iter().any(|&f| f) {
+    if !pinned.iter().any(|&f| f) {
         return (clamped, success, clamped_cost, 0);
     }
 
@@ -534,13 +617,13 @@ fn in_bounds_result(
         .map(|(&p, &b)| to_pso_coord(p, b))
         .collect();
     let (repolished, repolished_success, repolish_evals) = levenberg_marquardt_single_start(
-        topology,
+        problem,
         omegas,
         z_measured,
         weights,
         bounds,
         DVector::from_vec(start_coord),
-        &fixed,
+        &pinned,
         options,
         evals,
     );
@@ -558,12 +641,12 @@ fn in_bounds_result(
     }
 }
 
-/// Assemble a `FitOutcome` from a raw parameter vector: cost/chi_square/stderr
+/// Assemble a `FitOutcome` from free parameter values: cost/chi_square/stderr
 /// are always recomputed as the params may not come directly from that solver's
 /// own endpoint.
 #[allow(clippy::too_many_arguments)] // threading the evaluation counter through
 fn build_outcome(
-    topology: &[Node],
+    problem: &Problem,
     params: Vec<f64>,
     success: bool,
     iterations: u64,
@@ -574,7 +657,7 @@ fn build_outcome(
 ) -> FitOutcome {
     // Final safety clamp into physical bounds as methods can produce a slightly
     // out-of-range value.
-    let bounds = circuit::param_bounds(topology);
+    let bounds = problem.bounds();
     let params: Vec<f64> = params
         .into_iter()
         .zip(&bounds)
@@ -582,13 +665,13 @@ fn build_outcome(
         .collect();
 
     let cost = {
-        let r = residuals(topology, &params, omegas, z_measured, weights, evals);
+        let r = problem.residuals(&params, omegas, z_measured, weights, evals);
         0.5 * r.iter().map(|x| x * x).sum::<f64>()
     };
     let chi_square = 2.0 * cost;
 
     let stderr = {
-        let cols = jacobian_columns(topology, &params, omegas, z_measured, weights, evals);
+        let cols = jacobian_columns(problem, &params, omegas, z_measured, weights, evals);
         let m = cols.first().map_or(0, Vec::len);
         let n = cols.len();
         let j = DMatrix::from_fn(m, n, |i, jc| cols[jc][i]);
@@ -599,16 +682,19 @@ fn build_outcome(
             let jtj = j.transpose() * &j;
             jtj.try_inverse().map(|inv| {
                 let scale = chi_square / dof;
-                (0..inv.nrows())
-                    .map(|i| (inv[(i, i)] * scale).sqrt())
-                    .collect()
+                let mut full = vec![f64::NAN; problem.values.len()];
+                for (k, &i) in problem.free.iter().enumerate() {
+                    full[i] = (inv[(k, k)] * scale).sqrt();
+                }
+                full
             })
         }
     };
 
+    let params = problem.expand(&params);
     FitOutcome {
-        node: circuit::with_param_values(topology, &params),
-        param_names: circuit::param_names(topology),
+        node: circuit::with_param_values(&problem.topology, &params),
+        param_names: circuit::param_names(&problem.topology),
         params,
         success,
         iterations,
@@ -643,7 +729,7 @@ fn from_pso_coord(c: f64, (lo, hi): (f64, f64)) -> f64 {
 /// physical parameters via `bounds` before evaluating the model.
 struct PsoProblem<'a> {
     evals: &'a Evaluations,
-    topology: &'a [Node],
+    problem: &'a Problem,
     omegas: &'a [f64],
     z_measured: &'a [Complex64],
     weights: &'a [f64],
@@ -660,14 +746,9 @@ impl CostFunction for PsoProblem<'_> {
             .zip(self.bounds)
             .map(|(&c, &b)| from_pso_coord(c, b))
             .collect();
-        let r = residuals(
-            self.topology,
-            &p,
-            self.omegas,
-            self.z_measured,
-            self.weights,
-            self.evals,
-        );
+        let r = self
+            .problem
+            .residuals(&p, self.omegas, self.z_measured, self.weights, self.evals);
         Ok(0.5 * r.iter().map(|x| x * x).sum::<f64>())
     }
 }
@@ -696,7 +777,7 @@ fn pso_search_box(bounds: &[(f64, f64)], guess: &[f64]) -> (Vec<f64>, Vec<f64>) 
 /// Fit via particle swarm optimization followed by a LM polish.
 /// Pass `Some(seed)` for a reproducible run.
 pub fn particle_swarm_fit(
-    topology: &[Node],
+    problem: &Problem,
     frequencies: &[f64],
     z_measured: &[Complex64],
     weighting: Weighting,
@@ -710,24 +791,24 @@ pub fn particle_swarm_fit(
     if frequencies.is_empty() {
         return Err(FitError::EmptyData);
     }
-    if circuit::param_count(topology) == 0 {
+    if problem.n_free() == 0 {
         return Err(FitError::NoFreeParameters);
     }
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
     let evals = Evaluations::default();
-    let bounds = circuit::param_bounds(topology);
-    let guess = circuit::param_values(topology);
+    let bounds = problem.bounds();
+    let guess = problem.start();
     let (lower, upper) = pso_search_box(&bounds, &guess);
 
     let rng = match seed {
         Some(s) => rand::rngs::StdRng::seed_from_u64(s),
         None => rand::rngs::StdRng::from_os_rng(),
     };
-    let problem = PsoProblem {
+    let pso_problem = PsoProblem {
         evals: &evals,
-        topology,
+        problem,
         omegas: &omegas,
         z_measured,
         weights: &weights,
@@ -735,7 +816,7 @@ pub fn particle_swarm_fit(
     };
     let solver = ParticleSwarm::new((lower, upper), num_particles).with_rng_generator(rng);
 
-    let result = Executor::new(problem, solver)
+    let result = Executor::new(pso_problem, solver)
         .configure(|state| state.max_iters(generations))
         .run()
         .map_err(|e| FitError::SolverError(e.to_string()))?;
@@ -755,7 +836,7 @@ pub fn particle_swarm_fit(
     let pso_evaluations = result.state.get_iter();
 
     polish_or_fallback(
-        topology,
+        problem,
         best,
         pso_evaluations,
         frequencies,
@@ -770,7 +851,7 @@ pub fn particle_swarm_fit(
 /// Polish a candidate parameter vector with local unconstrained LM.
 #[allow(clippy::too_many_arguments)]
 fn polish_or_fallback(
-    topology: &[Node],
+    problem: &Problem,
     candidate: Vec<f64>,
     candidate_iterations: u64,
     frequencies: &[f64],
@@ -781,7 +862,7 @@ fn polish_or_fallback(
     evals: &Evaluations,
 ) -> Result<FitOutcome, FitError> {
     let candidate_outcome = build_outcome(
-        topology,
+        problem,
         candidate.clone(),
         true,
         candidate_iterations,
@@ -791,9 +872,8 @@ fn polish_or_fallback(
         evals,
     );
 
-    let polish_topology = circuit::with_param_values(topology, &candidate);
     let polished = levenberg_marquardt_fit(
-        &polish_topology,
+        &problem.starting_at(&candidate),
         frequencies,
         z_measured,
         weighting,
@@ -814,7 +894,7 @@ fn polish_or_fallback(
 /// Fit via the Nelder-Mead simplex method (derivative-free, local-ish) followed
 /// by an LM polish. Cheaper than PSO but might not escape a bad basin.
 pub fn nelder_mead_fit(
-    topology: &[Node],
+    problem: &Problem,
     frequencies: &[f64],
     z_measured: &[Complex64],
     weighting: Weighting,
@@ -826,15 +906,15 @@ pub fn nelder_mead_fit(
     if frequencies.is_empty() {
         return Err(FitError::EmptyData);
     }
-    if circuit::param_count(topology) == 0 {
+    if problem.n_free() == 0 {
         return Err(FitError::NoFreeParameters);
     }
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
     let evals = Evaluations::default();
-    let bounds = circuit::param_bounds(topology);
-    let guess = circuit::param_values(topology);
+    let bounds = problem.bounds();
+    let guess = problem.start();
     let guess_coord: Vec<f64> = guess
         .iter()
         .zip(&bounds)
@@ -856,9 +936,9 @@ pub fn nelder_mead_fit(
         simplex.push(point);
     }
 
-    let problem = PsoProblem {
+    let pso_problem = PsoProblem {
         evals: &evals,
-        topology,
+        problem,
         omegas: &omegas,
         z_measured,
         weights: &weights,
@@ -866,7 +946,7 @@ pub fn nelder_mead_fit(
     };
     let solver = NelderMead::new(simplex);
 
-    let result = Executor::new(problem, solver)
+    let result = Executor::new(pso_problem, solver)
         .configure(|state| state.max_iters(max_iterations))
         .run()
         .map_err(|e| FitError::SolverError(e.to_string()))?;
@@ -883,7 +963,7 @@ pub fn nelder_mead_fit(
     let iterations = result.state.get_iter();
 
     polish_or_fallback(
-        topology,
+        problem,
         best,
         iterations,
         frequencies,
@@ -901,7 +981,7 @@ const DE_RESTARTS: usize = 10;
 /// Fit via self-adaptive differential evolution followed by LM polish.
 /// The DE crate works in `f32`, LM recovers full `f64` precision.
 pub fn differential_evolution_fit(
-    topology: &[Node],
+    problem: &Problem,
     frequencies: &[f64],
     z_measured: &[Complex64],
     weighting: Weighting,
@@ -913,15 +993,15 @@ pub fn differential_evolution_fit(
     if frequencies.is_empty() {
         return Err(FitError::EmptyData);
     }
-    if circuit::param_count(topology) == 0 {
+    if problem.n_free() == 0 {
         return Err(FitError::NoFreeParameters);
     }
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
     let evals = Evaluations::default();
-    let bounds = circuit::param_bounds(topology);
-    let guess = circuit::param_values(topology);
+    let bounds = problem.bounds();
+    let guess = problem.start();
     let (lower, upper) = pso_search_box(&bounds, &guess);
     let coord_bounds: Vec<(f32, f32)> = lower
         .iter()
@@ -938,7 +1018,7 @@ pub fn differential_evolution_fit(
     let mut total_evaluations = 0u64;
 
     for _ in 0..DE_RESTARTS {
-        let topology_owned = topology.to_vec();
+        let problem_owned = problem.clone();
         let omegas_owned = omegas.clone();
         let z_owned = z_measured.to_vec();
         let weights_owned = weights.clone();
@@ -951,14 +1031,7 @@ pub fn differential_evolution_fit(
                 .zip(&bounds_owned)
                 .map(|(&c, &b)| from_pso_coord(f64::from(c), b))
                 .collect();
-            let r = residuals(
-                &topology_owned,
-                &p,
-                &omegas_owned,
-                &z_owned,
-                &weights_owned,
-                &evals_de,
-            );
+            let r = problem_owned.residuals(&p, &omegas_owned, &z_owned, &weights_owned, &evals_de);
             (0.5 * r.iter().map(|x| x * x).sum::<f64>()) as f32
         });
 
@@ -971,7 +1044,7 @@ pub fn differential_evolution_fit(
                 .zip(&bounds)
                 .map(|(&c, &b)| from_pso_coord(f64::from(c), b))
                 .collect();
-            let r = residuals(topology, &p, &omegas, z_measured, &weights, &evals);
+            let r = problem.residuals(&p, &omegas, z_measured, &weights, &evals);
             let cost_f64 = 0.5 * r.iter().map(|x| x * x).sum::<f64>();
             if overall_best
                 .as_ref()
@@ -987,7 +1060,7 @@ pub fn differential_evolution_fit(
     })?;
 
     polish_or_fallback(
-        topology,
+        problem,
         best,
         total_evaluations,
         frequencies,
@@ -1005,7 +1078,7 @@ pub fn differential_evolution_fit(
 /// (`&self`, not `&mut self`).
 struct SaProblem<'a> {
     evals: &'a Evaluations,
-    topology: &'a [Node],
+    problem: &'a Problem,
     omegas: &'a [f64],
     z_measured: &'a [Complex64],
     weights: &'a [f64],
@@ -1023,14 +1096,9 @@ impl CostFunction for SaProblem<'_> {
             .zip(self.bounds)
             .map(|(&c, &b)| from_pso_coord(c, b))
             .collect();
-        let r = residuals(
-            self.topology,
-            &p,
-            self.omegas,
-            self.z_measured,
-            self.weights,
-            self.evals,
-        );
+        let r = self
+            .problem
+            .residuals(&p, self.omegas, self.z_measured, self.weights, self.evals);
         Ok(0.5 * r.iter().map(|x| x * x).sum::<f64>())
     }
 }
@@ -1057,7 +1125,7 @@ impl Anneal for SaProblem<'_> {
 /// `seed`: pass `Some(seed)` for a reproducible run.
 #[allow(clippy::too_many_arguments)]
 pub fn simulated_annealing_fit(
-    topology: &[Node],
+    problem: &Problem,
     frequencies: &[f64],
     z_measured: &[Complex64],
     weighting: Weighting,
@@ -1071,15 +1139,15 @@ pub fn simulated_annealing_fit(
     if frequencies.is_empty() {
         return Err(FitError::EmptyData);
     }
-    if circuit::param_count(topology) == 0 {
+    if problem.n_free() == 0 {
         return Err(FitError::NoFreeParameters);
     }
 
     let omegas: Vec<f64> = frequencies.iter().map(|f| TAU * f).collect();
     let weights = compute_weights(z_measured, weighting);
     let evals = Evaluations::default();
-    let bounds = circuit::param_bounds(topology);
-    let guess = circuit::param_values(topology);
+    let bounds = problem.bounds();
+    let guess = problem.start();
     let guess_coord: Vec<f64> = guess
         .iter()
         .zip(&bounds)
@@ -1094,9 +1162,9 @@ pub fn simulated_annealing_fit(
         Some(s) => rand::rngs::StdRng::seed_from_u64(s.wrapping_add(1)),
         None => rand::rngs::StdRng::from_os_rng(),
     };
-    let problem = SaProblem {
+    let sa_problem = SaProblem {
         evals: &evals,
-        topology,
+        problem,
         omegas: &omegas,
         z_measured,
         weights: &weights,
@@ -1106,7 +1174,7 @@ pub fn simulated_annealing_fit(
     let solver = SimulatedAnnealing::new_with_rng(initial_temperature, accept_rng)
         .map_err(|e| FitError::SolverError(e.to_string()))?;
 
-    let result = Executor::new(problem, solver)
+    let result = Executor::new(sa_problem, solver)
         .configure(|state| state.param(guess_coord).max_iters(max_iterations))
         .run()
         .map_err(|e| FitError::SolverError(e.to_string()))?;
@@ -1122,7 +1190,7 @@ pub fn simulated_annealing_fit(
     let iterations = result.state.get_iter();
 
     polish_or_fallback(
-        topology,
+        problem,
         best,
         iterations,
         frequencies,
@@ -1138,7 +1206,7 @@ pub fn simulated_annealing_fit(
 /// `seed`: pass `Some(seed)` for a reproducible run.
 #[allow(clippy::too_many_arguments)]
 pub fn basin_hopping_fit(
-    topology: &[Node],
+    problem: &Problem,
     frequencies: &[f64],
     z_measured: &[Complex64],
     weighting: Weighting,
@@ -1153,7 +1221,7 @@ pub fn basin_hopping_fit(
     if frequencies.is_empty() {
         return Err(FitError::EmptyData);
     }
-    if circuit::param_count(topology) == 0 {
+    if problem.n_free() == 0 {
         return Err(FitError::NoFreeParameters);
     }
 
@@ -1161,24 +1229,24 @@ pub fn basin_hopping_fit(
         Some(s) => rand::rngs::StdRng::seed_from_u64(s),
         None => rand::rngs::StdRng::from_os_rng(),
     };
-    let bounds = circuit::param_bounds(topology);
+    let bounds = problem.bounds();
 
     // Step 0: a full local LM fit from the caller's own initial guess, exactly like
     // scipy.optimize.basinhopping's first step.
     let mut current = levenberg_marquardt_fit(
-        topology,
+        problem,
         frequencies,
         z_measured,
         weighting,
         &FitOptions::default(),
     )?;
-    let mut best = current.params.clone();
+    let mut best = problem.restrict(&current.params);
     let mut best_cost = current.cost;
     let mut total_iterations = current.iterations;
 
     for _ in 0..num_hops {
-        let current_coord: Vec<f64> = current
-            .params
+        let current_coord: Vec<f64> = problem
+            .restrict(&current.params)
             .iter()
             .zip(&bounds)
             .map(|(&p, &b)| to_pso_coord(p, b))
@@ -1193,9 +1261,8 @@ pub fn basin_hopping_fit(
             .map(|(&c, &b)| from_pso_coord(c, b))
             .collect();
 
-        let proposal_topology = circuit::with_param_values(topology, &proposal);
         let candidate = levenberg_marquardt_fit(
-            &proposal_topology,
+            &problem.starting_at(&proposal),
             frequencies,
             z_measured,
             weighting,
@@ -1204,7 +1271,7 @@ pub fn basin_hopping_fit(
         total_iterations += candidate.iterations;
 
         if candidate.cost.is_finite() && candidate.cost < best_cost {
-            best = candidate.params.clone();
+            best = problem.restrict(&candidate.params);
             best_cost = candidate.cost;
         }
 
@@ -1220,7 +1287,7 @@ pub fn basin_hopping_fit(
     let weights = compute_weights(z_measured, weighting);
     let evals = Evaluations::default();
     Ok(build_outcome(
-        topology,
+        problem,
         best,
         true,
         total_iterations,
@@ -1271,7 +1338,7 @@ mod tests {
         let z = synthetic_data(&truth, &freqs);
 
         let outcome = levenberg_marquardt_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1310,7 +1377,7 @@ mod tests {
 
         let start = circuit::with_param_values(&topology, &[5.0, 40.0, 10.0]);
         let outcome = levenberg_marquardt_fit(
-            &start,
+            &Problem::new(&start),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1352,7 +1419,7 @@ mod tests {
         let z = synthetic_data(&truth, &freqs);
 
         let outcome = levenberg_marquardt_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1389,16 +1456,21 @@ mod tests {
         }
 
         let modulus = levenberg_marquardt_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
             &FitOptions::default(),
         )
         .unwrap();
-        let unit =
-            levenberg_marquardt_fit(&guess, &freqs, &z, Weighting::Unit, &FitOptions::default())
-                .unwrap();
+        let unit = levenberg_marquardt_fit(
+            &Problem::new(&guess),
+            &freqs,
+            &z,
+            Weighting::Unit,
+            &FitOptions::default(),
+        )
+        .unwrap();
 
         let differ = modulus
             .params
@@ -1421,7 +1493,7 @@ mod tests {
         let z = synthetic_data(&truth, &freqs);
 
         let outcome = levenberg_marquardt_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1459,7 +1531,7 @@ mod tests {
         let z = synthetic_data(&truth, &freqs);
 
         let pso = particle_swarm_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1527,15 +1599,22 @@ mod tests {
     #[test]
     fn nelder_mead_recovers_randles_cell() {
         let (_truth, guess, freqs, z) = randles_case();
-        let outcome = nelder_mead_fit(&guess, &freqs, &z, Weighting::Modulus, 2000).unwrap();
+        let outcome =
+            nelder_mead_fit(&Problem::new(&guess), &freqs, &z, Weighting::Modulus, 2000).unwrap();
         assert_recovers_randles(&freqs, &z, &outcome);
     }
 
     #[test]
     fn differential_evolution_recovers_randles_cell() {
         let (_truth, guess, freqs, z) = randles_case();
-        let outcome =
-            differential_evolution_fit(&guess, &freqs, &z, Weighting::Modulus, 20_000).unwrap();
+        let outcome = differential_evolution_fit(
+            &Problem::new(&guess),
+            &freqs,
+            &z,
+            Weighting::Modulus,
+            20_000,
+        )
+        .unwrap();
         assert_recovers_randles(&freqs, &z, &outcome);
     }
 
@@ -1543,7 +1622,7 @@ mod tests {
     fn simulated_annealing_recovers_randles_cell() {
         let (_truth, guess, freqs, z) = randles_case();
         let outcome = simulated_annealing_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1559,7 +1638,7 @@ mod tests {
     fn basin_hopping_recovers_randles_cell() {
         let (_truth, guess, freqs, z) = randles_case();
         let outcome = basin_hopping_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1578,20 +1657,104 @@ mod tests {
         let freqs = vec![1.0, 2.0];
         let z = vec![Complex64::new(1.0, 0.0)];
         assert!(matches!(
-            nelder_mead_fit(&topo, &freqs, &z, Weighting::Unit, 100),
+            nelder_mead_fit(&Problem::new(&topo), &freqs, &z, Weighting::Unit, 100),
             Err(FitError::LengthMismatch)
         ));
         assert!(matches!(
-            differential_evolution_fit(&topo, &freqs, &z, Weighting::Unit, 100),
+            differential_evolution_fit(&Problem::new(&topo), &freqs, &z, Weighting::Unit, 100),
             Err(FitError::LengthMismatch)
         ));
         assert!(matches!(
-            simulated_annealing_fit(&topo, &freqs, &z, Weighting::Unit, 100, 1.0, Some(1)),
+            simulated_annealing_fit(
+                &Problem::new(&topo),
+                &freqs,
+                &z,
+                Weighting::Unit,
+                100,
+                1.0,
+                Some(1)
+            ),
             Err(FitError::LengthMismatch)
         ));
         assert!(matches!(
-            basin_hopping_fit(&topo, &freqs, &z, Weighting::Unit, 5, 1.0, 1.0, Some(1)),
+            basin_hopping_fit(
+                &Problem::new(&topo),
+                &freqs,
+                &z,
+                Weighting::Unit,
+                5,
+                1.0,
+                1.0,
+                Some(1)
+            ),
             Err(FitError::LengthMismatch)
+        ));
+    }
+
+    #[test]
+    fn fixed_parameter_at_truth_recovers_the_rest() {
+        let (truth, guess, freqs, z) = randles_case();
+        let mut start = circuit::param_values(&guess);
+        start[0] = 20.0;
+        let problem = Problem::with_fixed(&circuit::with_param_values(&guess, &start), &[0]);
+        let outcome = levenberg_marquardt_fit(
+            &problem,
+            &freqs,
+            &z,
+            Weighting::Modulus,
+            &FitOptions::default(),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.params[0], 20.0);
+        for (&fitted, &expected) in outcome.params.iter().zip(&circuit::param_values(&truth)) {
+            assert!(
+                ((fitted - expected) / expected).abs() < 1e-4,
+                "params={:?}",
+                outcome.params
+            );
+        }
+        let stderr = outcome.stderr.unwrap();
+        assert!(stderr[0].is_nan());
+        assert!(stderr[1..].iter().all(|e| e.is_finite()));
+    }
+
+    #[test]
+    fn every_solver_holds_a_fixed_parameter() {
+        let (_truth, guess, freqs, z) = randles_case();
+        let mut start = circuit::param_values(&guess);
+        start[0] = 30.0;
+        let problem = Problem::with_fixed(&circuit::with_param_values(&guess, &start), &[0]);
+        let w = Weighting::Modulus;
+        let outcomes = [
+            levenberg_marquardt_fit(&problem, &freqs, &z, w, &FitOptions::default()),
+            particle_swarm_fit(&problem, &freqs, &z, w, 50, 50, Some(1)),
+            nelder_mead_fit(&problem, &freqs, &z, w, 500),
+            differential_evolution_fit(&problem, &freqs, &z, w, 2000),
+            simulated_annealing_fit(&problem, &freqs, &z, w, 500, 2.0, Some(1)),
+            basin_hopping_fit(&problem, &freqs, &z, w, 3, 1.0, 1.0, Some(1)),
+        ];
+        for outcome in outcomes {
+            let outcome = outcome.unwrap();
+            assert_eq!(outcome.params[0], 30.0);
+            assert_eq!(circuit::param_values(&outcome.node)[0], 30.0);
+            assert!(outcome.cost.is_finite());
+        }
+    }
+
+    #[test]
+    fn all_parameters_fixed_is_rejected() {
+        let (_truth, guess, freqs, z) = randles_case();
+        let problem = Problem::with_fixed(&guess, &[0, 1, 2, 3]);
+        assert!(matches!(
+            levenberg_marquardt_fit(
+                &problem,
+                &freqs,
+                &z,
+                Weighting::Unit,
+                &FitOptions::default()
+            ),
+            Err(FitError::NoFreeParameters)
         ));
     }
 
@@ -1612,7 +1775,7 @@ mod tests {
         let z = synthetic_data(&[truth], &freqs);
 
         let outcome = levenberg_marquardt_fit(
-            &[guess],
+            &Problem::new(&[guess]),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1770,7 +1933,7 @@ mod tests {
         ];
 
         let outcome = levenberg_marquardt_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1809,8 +1972,14 @@ mod tests {
             max_iterations: 1,
             ..FitOptions::default()
         };
-        let outcome =
-            levenberg_marquardt_fit(&guess, &freqs, &z, Weighting::Modulus, &options).unwrap();
+        let outcome = levenberg_marquardt_fit(
+            &Problem::new(&guess),
+            &freqs,
+            &z,
+            Weighting::Modulus,
+            &options,
+        )
+        .unwrap();
 
         for &v in &outcome.params {
             assert!(v.is_finite());
@@ -1827,7 +1996,7 @@ mod tests {
         let z = synthetic_data(&truth, &freqs);
 
         let outcome = levenberg_marquardt_fit(
-            &guess,
+            &Problem::new(&guess),
             &freqs,
             &z,
             Weighting::Modulus,
@@ -1844,7 +2013,7 @@ mod tests {
         let topo = vec![r(100.0)];
         assert!(matches!(
             levenberg_marquardt_fit(
-                &topo,
+                &Problem::new(&topo),
                 &[1.0, 2.0],
                 &[Complex64::new(1.0, 0.0)],
                 Weighting::Unit,
@@ -1853,7 +2022,13 @@ mod tests {
             Err(FitError::LengthMismatch)
         ));
         assert!(matches!(
-            levenberg_marquardt_fit(&topo, &[], &[], Weighting::Unit, &FitOptions::default()),
+            levenberg_marquardt_fit(
+                &Problem::new(&topo),
+                &[],
+                &[],
+                Weighting::Unit,
+                &FitOptions::default()
+            ),
             Err(FitError::EmptyData)
         ));
     }
@@ -1886,18 +2061,19 @@ mod tests {
                 .map(|(&p, &b)| to_pso_coord(p, b))
                 .collect(),
         );
-        let fixed = vec![false; p0.len()];
+        let pinned = vec![false; p0.len()];
 
         let evals = Evaluations::default();
+        let fit_problem = Problem::new(&topology);
         let mut problem = LmProblem {
             evals: &evals,
-            topology: &topology,
+            problem: &fit_problem,
             omegas,
             z_measured: &z_measured,
             weights,
             bounds,
             coord,
-            fixed,
+            pinned,
         };
 
         let ours = problem.jacobian().unwrap();
